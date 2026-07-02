@@ -106,7 +106,36 @@
     background: var(--card); border: 3px solid var(--line); border-radius: 20px;
     padding: 14px; overflow-y: auto;
   }
-  .panel-title { font-weight: 900; font-size: 0.95rem; margin-bottom: 10px; color: #6B7A6C; }
+  .panel-title { font-weight: 900; font-size: 0.95rem; margin-bottom: 10px; color: #6B7A6C; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .swap-btn {
+    font-family: inherit; font-weight: 700; color: var(--ink);
+    background: white; border: 3px solid var(--line); border-radius: 999px;
+    padding: 5px 12px; cursor: pointer; font-size: 0.8rem;
+  }
+  /* 入れ替えモーダルの教科カード */
+  .subj-toggle-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .subj-toggle {
+    position: relative;
+    font-family: inherit; font-weight: 900; color: white;
+    border: none; border-radius: 16px; padding: 12px 4px 10px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    font-size: clamp(0.85rem, 1.6vw, 1.05rem); letter-spacing: 0.04em;
+    opacity: 0.4; filter: grayscale(0.6);
+    transition: opacity 0.15s ease, filter 0.15s ease, transform 0.1s ease;
+  }
+  .subj-toggle.on { opacity: 1; filter: none; }
+  .subj-toggle .pic { font-size: clamp(1.6rem, 3vw, 2.2rem); line-height: 1; }
+  .subj-toggle rt { font-size: 0.5em; }
+  .subj-toggle:active { transform: scale(0.94); }
+  .subj-toggle .check {
+    position: absolute; top: -8px; right: -8px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); color: white; border: 2px solid white;
+    font-weight: 900; font-size: 0.9rem; display: none;
+    align-items: center; justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .subj-toggle.on .check { display: flex; }
   .palette-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .subj-card {
     font-family: inherit; font-weight: 900; color: white;
@@ -347,7 +376,9 @@
   </div>
   <div class="builder">
     <div class="palette">
-      <div class="panel-title">きょうか の カード</div>
+      <div class="panel-title">きょうか の カード
+        <button class="swap-btn" id="swapSubjBtn">いれかえる</button>
+      </div>
       <div class="palette-grid" id="paletteGrid"></div>
     </div>
     <div class="plan">
@@ -380,6 +411,21 @@
     <button class="big-btn" id="printBtn" style="padding:10px 32px">🖨️ いんさつ</button>
   </div>
 </section>
+
+<!-- モーダル: きょうかの いれかえ -->
+<div class="modal-bg" id="subjModal">
+  <div class="modal wide">
+    <h2>つかう きょうかを えらぶ</h2>
+    <div style="font-size:0.85rem;color:#948B7C;font-weight:700;margin-bottom:4px">
+      タップで つかう／つかわない を きりかえます。<br>
+      つかう きょうかだけ ひだりに ならびます。
+    </div>
+    <div class="subj-toggle-grid" id="subjToggleGrid"></div>
+    <div class="btn-row" style="margin-top:4px">
+      <button class="big-btn" id="subjDoneBtn" style="padding:10px 40px">きめた</button>
+    </div>
+  </div>
+</div>
 
 <!-- モーダル: 先生えらび（複数選択＋その場で追加） -->
 <div class="modal-bg" id="teacherPickerModal">
@@ -442,18 +488,24 @@
 </div>
 
 <script>
-// ===== 教科・領域カード（イラスト・色・ふりがなは自由に変更できます）=====
-// textは文字色。黄色・黄緑は白文字だと読みにくいため濃い茶色にしています
-const SUBJECTS = [
-  { name: "日生", kana: "にっせい",     pic: "🪥", color: "#F2C230", text: "#5C4A12" },
-  { name: "生単", kana: "せいたん",     pic: "🌻", color: "#E8833A", text: "#FFFFFF" },
-  { name: "自立", kana: "じりつ",       pic: "💪", color: "#4CAF7D", text: "#FFFFFF" },
-  { name: "音楽", kana: "おんがく",     pic: "🎵", color: "#8A79C9", text: "#FFFFFF" },
-  { name: "総合", kana: "そうごう",     pic: "🔍", color: "#9CC94C", text: "#3F4F14" },
-  { name: "特活", kana: "とっかつ",     pic: "🎈", color: "#F08CB4", text: "#FFFFFF" },
-  { name: "行事", kana: "ぎょうじ",     pic: "🎌", color: "#C95B5B", text: "#FFFFFF" },
-  { name: "給食", kana: "きゅうしょく", pic: "🍚", color: "#4CAF7D", text: "#FFFFFF" },
-  { name: "昼休み", kana: "ひるやすみ", pic: "⚽", color: "#FFFFFF", text: "#44403A", border: "#D8D2C4" },
+// ===== 教科・領域カード =====
+// active: true のものだけ左のパレットに出ます(「きょうかを いれかえる」で切替)。
+// textは文字色。明るい色は白文字だと読みにくいため濃い色にしています。
+// 追加の数学・国語・作業・体育は、まだ使っていない色(青・水色・茶・青緑)にしています。
+let SUBJECTS = [
+  { name: "日生", kana: "にっせい",     pic: "🪥", color: "#F2C230", text: "#5C4A12", active: true },
+  { name: "生単", kana: "せいたん",     pic: "🌻", color: "#E8833A", text: "#FFFFFF", active: true },
+  { name: "自立", kana: "じりつ",       pic: "💪", color: "#4CAF7D", text: "#FFFFFF", active: true },
+  { name: "音楽", kana: "おんがく",     pic: "🎵", color: "#8A79C9", text: "#FFFFFF", active: true },
+  { name: "総合", kana: "そうごう",     pic: "🔍", color: "#9CC94C", text: "#3F4F14", active: true },
+  { name: "特活", kana: "とっかつ",     pic: "🎈", color: "#F08CB4", text: "#FFFFFF", active: true },
+  { name: "行事", kana: "ぎょうじ",     pic: "🎌", color: "#C95B5B", text: "#FFFFFF", active: true },
+  { name: "給食", kana: "きゅうしょく", pic: "🍚", color: "#4CAF7D", text: "#FFFFFF", active: true },
+  { name: "昼休み", kana: "ひるやすみ", pic: "⚽", color: "#FFFFFF", text: "#44403A", border: "#D8D2C4", active: true },
+  { name: "数学", kana: "すうがく",     pic: "🔢", color: "#3B6FB5", text: "#FFFFFF", active: false },
+  { name: "国語", kana: "こくご",       pic: "📖", color: "#5FB0C9", text: "#0E3B47", active: false },
+  { name: "作業", kana: "さぎょう",     pic: "🔨", color: "#9C6B4A", text: "#FFFFFF", active: false },
+  { name: "体育", kana: "たいいく",     pic: "🏃", color: "#2E9E8F", text: "#FFFFFF", active: false },
 ];
 
 // 番号を振らない時間（時限として数えないもの）
@@ -539,10 +591,13 @@ const DAY_KEY_PREFIX = "jikanwari-day-"; // 日付ごとのデータ (例: jikan
 
 function dayKey(date) { return DAY_KEY_PREFIX + date; }
 
-// 共通データ(内容・先生・最後の日付)を保存
+// 共通データ(内容・先生・教科の表示状態・最後の日付)を保存
 function saveCommon() {
   try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify({ CONTENTS, TEACHERS, lastDate: dayInfo.date }));
+    // 教科は「名前→表示するか」だけ保存(色やアイコンはコード側の最新を使うため)
+    const subjActive = {};
+    SUBJECTS.forEach(s => { subjActive[s.name] = s.active; });
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ CONTENTS, TEACHERS, subjActive, lastDate: dayInfo.date }));
   } catch (e) { /* 保存できない環境(プレビュー等)では何もしない */ }
 }
 // その日の時間割・天気・ふりかえりを保存
@@ -579,6 +634,14 @@ function loadCommon() {
     const d = JSON.parse(raw);
     if (d.CONTENTS) CONTENTS = d.CONTENTS;
     if (d.TEACHERS) TEACHERS = d.TEACHERS;
+    if (d.subjActive) {
+      // 保存された表示状態を反映(保存に無い教科は初期値のまま)
+      SUBJECTS.forEach(s => {
+        if (Object.prototype.hasOwnProperty.call(d.subjActive, s.name)) {
+          s.active = d.subjActive[s.name];
+        }
+      });
+    }
     if (d.lastDate) dayInfo.date = d.lastDate;
   } catch (e) {}
 }
@@ -732,20 +795,54 @@ function renderWeatherBtns() {
 }
 renderWeatherBtns();
 
-// ===== 左パレット：教科カード =====
+// ===== 左パレット：教科カード（表示ONの教科だけ並べます）=====
 const paletteGrid = document.getElementById("paletteGrid");
-SUBJECTS.forEach(s => {
-  const btn = document.createElement("button");
-  btn.className = "subj-card";
-  btn.style.background = s.color;
-  btn.style.color = s.text;
-  if (s.border) btn.style.border = `3px solid ${s.border}`;
-  btn.innerHTML = `<span class="pic">${s.pic}</span>${rubyHtml(s, false)}`;
-  btn.addEventListener("click", () => {
-    periods.push({ subject: s.name, contents: [], teacherIds: [] });
-    renderBuild();
+function renderPalette() {
+  paletteGrid.innerHTML = "";
+  SUBJECTS.filter(s => s.active).forEach(s => {
+    const btn = document.createElement("button");
+    btn.className = "subj-card";
+    btn.style.background = s.color;
+    btn.style.color = s.text;
+    if (s.border) btn.style.border = `3px solid ${s.border}`;
+    btn.innerHTML = `<span class="pic">${s.pic}</span>${rubyHtml(s, false)}`;
+    btn.addEventListener("click", () => {
+      periods.push({ subject: s.name, contents: [], teacherIds: [] });
+      renderBuild();
+    });
+    paletteGrid.appendChild(btn);
   });
-  paletteGrid.appendChild(btn);
+}
+renderPalette();
+
+// ===== きょうかの いれかえ =====
+document.getElementById("swapSubjBtn").addEventListener("click", () => {
+  renderSubjToggle();
+  openModal("subjModal");
+});
+
+function renderSubjToggle() {
+  const grid = document.getElementById("subjToggleGrid");
+  grid.innerHTML = "";
+  SUBJECTS.forEach(s => {
+    const btn = document.createElement("button");
+    btn.className = "subj-toggle" + (s.active ? " on" : "");
+    btn.style.background = s.color;
+    btn.style.color = s.text;
+    if (s.border) btn.style.border = `3px solid ${s.border}`;
+    btn.innerHTML = `<span class="check">✓</span><span class="pic">${s.pic}</span>${rubyHtml(s, false)}`;
+    btn.addEventListener("click", () => {
+      s.active = !s.active;
+      renderSubjToggle();
+      renderPalette();
+      saveCommon();
+    });
+    grid.appendChild(btn);
+  });
+}
+
+document.getElementById("subjDoneBtn").addEventListener("click", () => {
+  closeModals();
 });
 
 // ===== 右側：じかんわりの描画 =====
