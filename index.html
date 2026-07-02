@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>きょうの じかんわり</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F6F4EE;
+    --card: #FFFFFF;
+    --ink: #44403A;
+    --line: #E5DFD2;
+    --accent: #4CAF7D;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", sans-serif;
+    background: var(--bg); color: var(--ink);
+    user-select: none; -webkit-user-select: none;
+    overflow: hidden;
+  }
+  .screen { display: none; height: 100dvh; flex-direction: column; padding: 2.5vh 2.5vw; }
+  .screen.active { display: flex; }
+  h1 { font-weight: 900; font-size: clamp(1.2rem, 3vw, 1.8rem); letter-spacing: 0.06em; text-align: center; margin-bottom: 1.5vh; }
+  ruby rt { font-weight: 700; }
+
+  /* ===== 共通ボタン ===== */
+  .big-btn {
+    font-family: inherit; font-weight: 900; letter-spacing: 0.1em; color: white;
+    font-size: clamp(1rem, 2.6vw, 1.4rem);
+    background: var(--accent); border: none; border-radius: 999px;
+    padding: 12px 44px; cursor: pointer;
+    box-shadow: 0 5px 0 #37845E;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .big-btn:active { transform: translateY(4px); box-shadow: 0 1px 0 #37845E; }
+  .sub-btn {
+    font-family: inherit; font-weight: 700; color: var(--ink);
+    background: white; border: 3px solid var(--line); border-radius: 999px;
+    padding: 8px 20px; cursor: pointer; font-size: 0.9rem;
+  }
+  .btn-row { display: flex; gap: 10px; justify-content: center; margin-top: 1.5vh; flex-wrap: wrap; }
+
+  /* ===== 日付・天気バー ===== */
+  .day-bar {
+    display: flex; align-items: center; justify-content: center; gap: 14px;
+    flex-wrap: wrap; margin-bottom: 1.5vh;
+  }
+  /* 自作の日付ボタン */
+  .date-btn {
+    font-family: inherit; font-weight: 900; color: var(--ink);
+    font-size: clamp(1.1rem, 2.6vw, 1.6rem);
+    background: white; border: 3px solid var(--line); border-radius: 14px;
+    padding: 12px 22px; cursor: pointer; min-height: 54px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .date-btn::before { content: "📅"; font-size: 1.1em; }
+  .date-btn rt { font-size: 0.4em; font-weight: 700; }
+  /* カレンダー本体 */
+  .cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .cal-title { font-weight: 900; font-size: 1.2rem; }
+  .cal-nav {
+    font-family: inherit; font-weight: 900; font-size: 1.1rem; color: var(--ink);
+    background: var(--bg); border: 3px solid var(--line); border-radius: 12px;
+    width: 48px; height: 48px; cursor: pointer;
+  }
+  .cal-weekrow, .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+  .cal-weekrow span { text-align: center; font-weight: 700; font-size: 0.8rem; color: #948B7C; padding: 4px 0; }
+  .cal-weekrow span.sun { color: #C95B5B; }
+  .cal-weekrow span.sat { color: #5C8FD6; }
+  .cal-cell {
+    font-family: inherit; font-weight: 700; font-size: 1rem; color: var(--ink);
+    background: white; border: 2px solid var(--line); border-radius: 10px;
+    aspect-ratio: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cal-cell.empty { background: transparent; border: none; cursor: default; }
+  .cal-cell.sun { color: #C95B5B; }
+  .cal-cell.sat { color: #5C8FD6; }
+  .cal-cell.today { border-color: var(--accent); }
+  .cal-cell.selected { background: var(--accent); color: white; border-color: var(--accent); }
+  .cal-cell:active { transform: scale(0.92); }
+  .weather-btn {
+    font-family: inherit; font-weight: 700; color: var(--ink);
+    background: white; border: 3px solid var(--line); border-radius: 999px;
+    padding: 7px 14px; cursor: pointer; font-size: 0.95rem;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .weather-btn .pic { font-size: 1.3em; }
+  .weather-btn.on { border-color: var(--accent); background: #E9F6EE; }
+  .view-day {
+    text-align: center; font-weight: 900;
+    font-size: clamp(1.2rem, 3.4vw, 2rem); letter-spacing: 0.06em;
+    margin-bottom: 1.5vh;
+    display: flex; align-items: center; justify-content: center; gap: 16px; flex-wrap: wrap;
+  }
+  .view-day .w-pic { font-size: 1.4em; }
+
+  /* ===== つくる画面：左パレット＋右じかんわり ===== */
+  .builder { display: flex; gap: 2vw; flex: 1; min-height: 0; }
+  .palette {
+    flex: 0 0 clamp(220px, 30vw, 320px);
+    background: var(--card); border: 3px solid var(--line); border-radius: 20px;
+    padding: 14px; overflow-y: auto;
+  }
+  .panel-title { font-weight: 900; font-size: 0.95rem; margin-bottom: 10px; color: #6B7A6C; }
+  .palette-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .subj-card {
+    font-family: inherit; font-weight: 900; color: white;
+    border: none; border-radius: 14px;
+    padding: 8px 4px 7px; cursor: pointer; text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    font-size: clamp(0.8rem, 1.5vw, 1rem); letter-spacing: 0.04em;
+    box-shadow: 0 3px 0 rgba(0,0,0,0.18);
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .subj-card .pic { font-size: clamp(1.4rem, 2.8vw, 2rem); line-height: 1; margin-bottom: 1px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
+  .subj-card ruby { line-height: 1.1; }
+  .subj-card rt { font-size: 0.55em; }
+  .subj-card:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,0.18); }
+
+  .plan {
+    flex: 1; background: var(--card); border: 3px solid var(--line); border-radius: 20px;
+    padding: 14px; overflow-y: auto;
+  }
+  .plan-empty { color: #A79E8E; font-weight: 700; text-align: center; padding: 30px 10px; line-height: 1.8; }
+  .period-row {
+    background: var(--bg); border: 3px solid var(--line); border-radius: 16px;
+    padding: 10px 12px; margin-bottom: 10px;
+    display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 10px; align-items: center;
+  }
+  .period-num {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: white; border: 3px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 1.15rem;
+  }
+  .row-subject {
+    color: white; font-weight: 900; border-radius: 12px;
+    padding: 6px 12px; text-align: center; letter-spacing: 0.04em;
+    font-size: clamp(0.9rem, 1.8vw, 1.1rem); min-width: 92px;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .row-subject rt { font-size: 0.5em; }
+  .period-row select {
+    font-family: inherit; font-weight: 700; font-size: 0.95rem; color: var(--ink);
+    border: 3px solid var(--line); border-radius: 12px; padding: 9px 6px;
+    background: white; width: 100%; min-height: 46px;
+  }
+  /* 内容（複数選択）の表示 */
+  .content-cell { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .c-chip {
+    background: white; border: 2px solid var(--line); border-radius: 999px;
+    padding: 5px 12px; font-weight: 700; font-size: 0.85rem;
+  }
+  .pick-btn {
+    font-family: inherit; font-weight: 700; color: var(--ink);
+    background: white; border: 3px dashed #C9C0AD; border-radius: 12px;
+    padding: 8px 14px; cursor: pointer; font-size: 0.9rem; min-height: 44px;
+  }
+  /* 内容えらびモーダルのトグルボタン */
+  .toggle-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 40vh; overflow-y: auto; }
+  .toggle-wrap { position: relative; }
+  .toggle-btn {
+    font-family: inherit; font-weight: 700; color: var(--ink);
+    background: white; border: 3px solid var(--line); border-radius: 999px;
+    padding: 9px 18px; cursor: pointer; font-size: 0.95rem;
+  }
+  .toggle-del {
+    position: absolute; top: -8px; right: -8px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: #C95B5B; color: white; border: 2px solid white;
+    font-family: inherit; font-weight: 900; font-size: 0.9rem; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .toggle-btn.on { border-color: var(--accent); background: #E9F6EE; }
+  .t-toggle { display: flex; align-items: center; gap: 8px; }
+  .t-toggle img, .t-toggle .noimg {
+    width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 0.75rem; background: #EFE9DC;
+  }
+  .add-inline { display: flex; gap: 8px; }
+  .add-inline input { flex: 1; }
+  .add-inline .sub-btn { white-space: nowrap; }
+  .teacher-pick { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; min-width: 108px; }
+  .t-chip {
+    border: 3px solid var(--line); background: white; border-radius: 999px;
+    padding: 2px; cursor: pointer; line-height: 0;
+  }
+  .t-chip img, .t-chip .noimg {
+    width: 42px; height: 42px; border-radius: 50%; object-fit: cover;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: 0.8rem; background: #EFE9DC;
+  }
+  .t-chip.on { border-color: var(--accent); background: #E9F6EE; }
+  .row-del {
+    font-family: inherit; background: none; border: none;
+    font-size: 1.3rem; color: #B0533F; cursor: pointer; padding: 6px;
+  }
+
+  /* ===== 追加用モーダル ===== */
+  .modal-bg {
+    display: none; position: fixed; inset: 0; background: rgba(60,50,40,0.4);
+    align-items: center; justify-content: center; z-index: 10; padding: 20px;
+  }
+  .modal-bg.open { display: flex; }
+  .modal {
+    background: white; border-radius: 24px; padding: 24px;
+    width: min(92vw, 440px); display: flex; flex-direction: column; gap: 14px;
+  }
+  .modal.wide { width: min(94vw, 620px); }
+  .modal.wide .toggle-list { max-height: 55vh; }
+  .modal h2 { font-size: 1.15rem; font-weight: 900; }
+  .modal input[type="text"] {
+    font-family: inherit; font-weight: 700; font-size: 1.1rem; color: var(--ink);
+    border: 3px solid var(--line); border-radius: 12px; padding: 12px; width: 100%;
+  }
+  .photo-drop {
+    border: 3px dashed var(--line); border-radius: 16px; padding: 14px;
+    text-align: center; font-weight: 700; color: #948B7C; cursor: pointer;
+  }
+  .photo-drop img { width: 90px; height: 90px; border-radius: 50%; object-fit: cover; }
+
+  /* ===== みる画面（生徒向け表示）===== */
+  #screen-view { overflow-y: auto; }
+  .view-list { display: flex; flex-direction: column; gap: 14px; max-width: 840px; width: 100%; margin: 0 auto; }
+  .view-card {
+    background: var(--card); border: 5px solid var(--line); border-radius: 26px;
+    padding: 14px 20px;
+    display: grid; grid-template-columns: auto auto 1fr auto; gap: 18px; align-items: center;
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+  }
+  .view-card.now { border-color: var(--accent); background: #EDF8F1; transform: scale(1.02); }
+  .view-card.now .v-num::after {
+    content: "いま"; position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: white; font-size: 0.7rem; font-weight: 900;
+    border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+  }
+  .v-num {
+    position: relative;
+    width: clamp(52px, 7vw, 68px); height: clamp(52px, 7vw, 68px); border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; font-size: clamp(1.3rem, 3vw, 1.7rem);
+    background: var(--bg); border: 3px solid var(--line);
+  }
+  .v-subject {
+    color: white; font-weight: 900; border-radius: 16px;
+    padding: 8px 16px; font-size: clamp(1.1rem, 3vw, 1.7rem);
+    letter-spacing: 0.06em; min-width: clamp(120px, 17vw, 180px); text-align: center;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  .v-subject .pic { font-size: 1.3em; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2)); }
+  .v-subject rt { font-size: 0.42em; letter-spacing: 0.02em; }
+  .v-content { font-weight: 900; font-size: clamp(1.1rem, 3.2vw, 1.8rem); letter-spacing: 0.04em; }
+  .v-teachers { display: flex; gap: 10px; }
+  .v-teacher { text-align: center; font-weight: 700; font-size: clamp(0.75rem, 1.6vw, 0.95rem); }
+  .v-teacher img, .v-teacher .noimg {
+    width: clamp(52px, 7.5vw, 76px); height: clamp(52px, 7.5vw, 76px);
+    border-radius: 50%; object-fit: cover; border: 3px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 900; background: #EFE9DC; margin: 0 auto 2px;
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  /* ===== 1日のふりかえり ===== */
+  .reflect-box {
+    max-width: 840px; width: 100%; margin: 2vh auto 0;
+    background: var(--card); border: 5px solid var(--line); border-radius: 26px;
+    padding: 18px 22px;
+  }
+  .reflect-title { font-weight: 900; font-size: clamp(1.1rem, 2.8vw, 1.5rem); margin-bottom: 12px; }
+  .reflect-add { display: flex; flex-direction: column; gap: 10px; }
+  .reflect-line {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--bg); border: 3px solid var(--line); border-radius: 16px; padding: 10px 12px;
+  }
+  .reflect-line select {
+    font-family: inherit; font-weight: 700; font-size: 1rem; color: var(--ink);
+    border: 3px solid var(--line); border-radius: 12px; padding: 9px 8px; background: white; min-height: 46px;
+  }
+  .reflect-line .arrow { font-weight: 900; color: #A79E8E; }
+  .reflect-line .del {
+    font-family: inherit; background: none; border: none; font-size: 1.3rem; color: #B0533F; cursor: pointer; margin-left: auto;
+  }
+  .reflect-add-btn {
+    font-family: inherit; font-weight: 700; color: var(--ink);
+    background: white; border: 3px dashed #C9C0AD; border-radius: 14px;
+    padding: 10px 16px; cursor: pointer; font-size: 0.95rem; min-height: 46px;
+  }
+  .reflect-sentence {
+    margin-top: 14px; padding: 14px 16px;
+    background: #F3F8F4; border-radius: 16px;
+    font-weight: 900; font-size: clamp(1.1rem, 3vw, 1.6rem); line-height: 1.9; color: var(--ink);
+    min-height: 1em;
+  }
+  .reflect-sentence rt { font-size: 0.42em; font-weight: 700; }
+  .reflect-sentence:empty::before { content: "うえで えらぶと ここに ぶんが でます"; color: #A79E8E; font-weight: 700; font-size: 0.9rem; }
+
+  /* ===== 印刷用: ボタン類を隠し、時間割だけをきれいに出す ===== */
+  @media print {
+    body { background: white; overflow: visible; }
+    .screen { height: auto; padding: 0; }
+    .btn-row, #backBtn, #printBtn { display: none !important; }
+    #screen-view { display: flex !important; }
+    #screen-build { display: none !important; }
+    .view-card { break-inside: avoid; border-color: #999; }
+    .view-card.now { transform: none; background: white; }
+    .view-card.now .v-num::after { display: none; } /* 「いま」の印は印刷しない */
+    .v-teacher img, .v-teacher .noimg { border-color: #999; }
+    .reflect-box { break-inside: avoid; border-color: #999; }
+    .reflect-add, .reflect-add-btn { display: none !important; } /* 選択欄は印刷しない */
+    .reflect-sentence { background: white; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 画面1: つくる（先生用） -->
+<section class="screen active" id="screen-build">
+  <h1>ひだりの カードを タップして じかんわりを つくろう</h1>
+  <div class="day-bar">
+    <button id="dateBtn" class="date-btn"></button>
+    <span id="weatherBtns" style="display:flex;gap:8px;flex-wrap:wrap"></span>
+  </div>
+
+  <!-- 自作カレンダー -->
+  <div class="modal-bg" id="calModal">
+    <div class="modal" style="width:min(94vw,380px)">
+      <div class="cal-head">
+        <button class="cal-nav" id="calPrev">◀</button>
+        <span id="calTitle" class="cal-title"></span>
+        <button class="cal-nav" id="calNext">▶</button>
+      </div>
+      <div class="cal-weekrow" id="calWeekrow"></div>
+      <div class="cal-grid" id="calGrid"></div>
+      <div class="btn-row" style="margin-top:4px">
+        <button class="sub-btn" id="calToday">きょう</button>
+        <button class="sub-btn" data-close>とじる</button>
+      </div>
+    </div>
+  </div>
+  <div class="builder">
+    <div class="palette">
+      <div class="panel-title">きょうか の カード</div>
+      <div class="palette-grid" id="paletteGrid"></div>
+    </div>
+    <div class="plan">
+      <div class="panel-title">きょうの じかんわり（うえから じゅんばん）</div>
+      <div id="periodList"></div>
+    </div>
+  </div>
+  <div class="btn-row">
+    <button class="sub-btn" id="addContentBtn">＋ ないようを ついか</button>
+    <button class="sub-btn" id="addTeacherBtn">＋ せんせいを ついか</button>
+    <button class="big-btn" id="showBtn">じかんわりを みせる</button>
+  </div>
+</section>
+
+<!-- 画面2: みる（生徒向け表示） -->
+<section class="screen" id="screen-view">
+  <h1>きょうの じかんわり</h1>
+  <div class="view-day" id="viewDay"></div>
+  <div class="view-list" id="viewList"></div>
+
+  <!-- 1日のふりかえり -->
+  <div class="reflect-box" id="reflectBox">
+    <div class="reflect-title">📝 きょうの ふりかえり</div>
+    <div class="reflect-add" id="reflectAdd"></div>
+    <div class="reflect-sentence" id="reflectSentence"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="sub-btn" id="backBtn">つくる がめんに もどる</button>
+    <button class="big-btn" id="printBtn" style="padding:10px 32px">🖨️ いんさつ</button>
+  </div>
+</section>
+
+<!-- モーダル: 先生えらび（複数選択＋その場で追加） -->
+<div class="modal-bg" id="teacherPickerModal">
+  <div class="modal">
+    <h2>せんせい を えらぶ（いくつでも）</h2>
+    <div class="toggle-list" id="teacherPickerList"></div>
+    <input type="text" id="tpNameInput" placeholder="あたらしい せんせいの なまえ">
+    <div class="photo-drop" id="tpPhotoDrop">かおじゃしんを えらぶ（タップ）</div>
+    <input type="file" id="tpPhotoInput" accept="image/*" style="display:none">
+    <div class="add-inline" style="justify-content:center">
+      <button class="sub-btn" id="tpAddBtn">リストに ついか</button>
+    </div>
+    <div class="btn-row" style="margin-top:0">
+      <button class="big-btn" id="tpDoneBtn" style="padding:10px 40px">きめた</button>
+    </div>
+  </div>
+</div>
+
+<!-- モーダル: 内容えらび（複数選択＋その場で追加） -->
+<div class="modal-bg" id="pickerModal">
+  <div class="modal wide">
+    <h2>ないよう を えらぶ（いくつでも）</h2>
+    <div class="toggle-list" id="pickerList"></div>
+    <div class="add-inline">
+      <input type="text" id="pickerNewInput" placeholder="あたらしい ないよう">
+      <input type="text" id="pickerNewKana" placeholder="ふりがな（かんじの とき）">
+      <button class="sub-btn" id="pickerAddBtn">リストに ついか</button>
+    </div>
+    <div class="btn-row" style="margin-top:0">
+      <button class="big-btn" id="pickerDoneBtn" style="padding:10px 40px">きめた</button>
+    </div>
+  </div>
+</div>
+
+<!-- モーダル: 内容の追加 -->
+<div class="modal-bg" id="contentModal">
+  <div class="modal">
+    <h2>ないよう を ついか</h2>
+    <input type="text" id="contentInput" placeholder="れい：カレンダーづくり">
+    <input type="text" id="contentKanaInput" placeholder="ふりがな（かんじの とき）">
+    <div class="btn-row" style="margin-top:0">
+      <button class="sub-btn" data-close>やめる</button>
+      <button class="big-btn" id="contentSaveBtn" style="padding:10px 32px">ついか</button>
+    </div>
+  </div>
+</div>
+
+<!-- モーダル: 先生の追加 -->
+<div class="modal-bg" id="teacherModal">
+  <div class="modal">
+    <h2>せんせい を ついか</h2>
+    <input type="text" id="teacherNameInput" placeholder="れい：こん せんせい">
+    <div class="photo-drop" id="photoDrop">かおじゃしんを えらぶ（タップ）</div>
+    <input type="file" id="photoInput" accept="image/*" style="display:none">
+    <div class="btn-row" style="margin-top:0">
+      <button class="sub-btn" data-close>やめる</button>
+      <button class="big-btn" id="teacherSaveBtn" style="padding:10px 32px">ついか</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===== 教科・領域カード（イラスト・色・ふりがなは自由に変更できます）=====
+// textは文字色。黄色・黄緑は白文字だと読みにくいため濃い茶色にしています
+const SUBJECTS = [
+  { name: "日生", kana: "にっせい",     pic: "🪥", color: "#F2C230", text: "#5C4A12" },
+  { name: "生単", kana: "せいたん",     pic: "🌻", color: "#E8833A", text: "#FFFFFF" },
+  { name: "自立", kana: "じりつ",       pic: "💪", color: "#4CAF7D", text: "#FFFFFF" },
+  { name: "音楽", kana: "おんがく",     pic: "🎵", color: "#8A79C9", text: "#FFFFFF" },
+  { name: "総合", kana: "そうごう",     pic: "🔍", color: "#9CC94C", text: "#3F4F14" },
+  { name: "特活", kana: "とっかつ",     pic: "🎈", color: "#F08CB4", text: "#FFFFFF" },
+  { name: "行事", kana: "ぎょうじ",     pic: "🎌", color: "#C95B5B", text: "#FFFFFF" },
+  { name: "給食", kana: "きゅうしょく", pic: "🍚", color: "#4CAF7D", text: "#FFFFFF" },
+  { name: "昼休み", kana: "ひるやすみ", pic: "⚽", color: "#FFFFFF", text: "#44403A", border: "#D8D2C4" },
+];
+
+// 番号を振らない時間（時限として数えないもの）
+function isNoNumber(name) { return name === "給食" || name === "昼休み"; }
+
+// ===== 内容の一覧（ふりがな付き。「＋ないようをついか」で増やせます）=====
+let CONTENTS = [
+  { text: "朝の会",     kana: "あさのかい" },
+  { text: "トイレ",     kana: "" },
+  { text: "着替え",     kana: "きがえ" },
+  { text: "トレーニング", kana: "" },
+  { text: "卓上織り機",  kana: "たくじょうおりき" },
+  { text: "シュレッダー", kana: "" },
+  { text: "帰りの会",   kana: "かえりのかい" },
+  { text: "委員会",     kana: "いいんかい" },
+  { text: "休憩",       kana: "きゅうけい" },
+  { text: "図書当番",   kana: "としょとうばん" },
+];
+
+// 内容をルビ(ふりがな)付きHTMLにする。ふりがなが無いものはそのまま表示
+function contentRubyHtml(text) {
+  const c = CONTENTS.find(x => x.text === text);
+  return (c && c.kana) ? `<ruby>${c.text}<rt>${c.kana}</rt></ruby>` : text;
+}
+// 読み上げ用。ふりがながあればそれを使い、誤読を防ぐ
+function contentKana(text) {
+  const c = CONTENTS.find(x => x.text === text);
+  return (c && c.kana) ? c.kana : text;
+}
+
+// ===== 先生の一覧（初期は空。えらぶ画面から顔写真付きで追加できます）=====
+let TEACHERS = [];
+
+// ===== 時間割データ（左のカードをタップすると1行増えます）=====
+let periods = [];
+let nowIndex = -1;
+
+// ===== 日付・天気 =====
+const WEATHERS = [
+  { key: "はれ",   pic: "☀️", kanji: "晴れ", kana: "はれ" },
+  { key: "くもり", pic: "☁️", kanji: "くもり", kana: "くもり" },
+  { key: "あめ",   pic: "🌧️", kanji: "雨", kana: "あめ" },
+  { key: "ゆき",   pic: "⛄", kanji: "雪", kana: "ゆき" },
+];
+const WEEKDAYS = [
+  { kanji: "日曜日", kana: "にちようび" },
+  { kanji: "月曜日", kana: "げつようび" },
+  { kanji: "火曜日", kana: "かようび" },
+  { kanji: "水曜日", kana: "すいようび" },
+  { kanji: "木曜日", kana: "もくようび" },
+  { kanji: "金曜日", kana: "きんようび" },
+  { kanji: "土曜日", kana: "どようび" },
+];
+let dayInfo = { date: new Date().toISOString().slice(0, 10), weather: "" };
+
+// ===== ふりかえりの評価語（固定リスト）=====
+// label は選ぶときの表示、end は文末表現。「そうじ」＋「がんばった(→をがんばりました)」で
+// 自然な文になるよう、助詞と語尾をセットで持たせています。
+// 自立活動「心理的な安定」で気持ちを言語化する観点から、肯定的な表現を中心に、
+// 難しさも表せる語をバランスよく入れています。
+const EVALS = [
+  { key: "gambatta",    label: "がんばった",     end: "を がんばりました。" },
+  { key: "dekita",      label: "できた",         end: "が できました。" },
+  { key: "tanoshii",    label: "たのしかった",   end: "が たのしかったです。" },
+  { key: "omoshiroi",   label: "おもしろかった", end: "が おもしろかったです。" },
+  { key: "ureshii",     label: "うれしかった",   end: "が うれしかったです。" },
+  { key: "syuchu",      label: "しゅうちゅうできた", end: "に しゅうちゅうできました。" },
+  { key: "kimochiyoi",  label: "きもちよかった", end: "が きもちよかったです。" },
+  { key: "dokidoki",    label: "どきどきした",   end: "で どきどきしました。" },
+  { key: "muzukashii",  label: "むずかしかった", end: "が むずかしかったです。" },
+  { key: "mousukoshi",  label: "もうすこし",     end: "を もうすこし がんばりたいです。" },
+  { key: "mata",        label: "また やりたい",  end: "を また やりたいです。" },
+];
+// その日のふりかえり: [{ content: "そうじ", evalKey: "gambatta" }, ...]
+let reflections = [];
+
+// ===== 保存機能 =====
+// 仕組み: 内容・先生リストは全日付で共通、時間割のコマと天気は日付ごとに保存します。
+// 毎日変わるもの(コマ・天気)と使い回すもの(内容・先生)を分けることで、
+// 日付を切り替えても先生や内容の登録が消えないようにしています。
+const SAVE_KEY = "jikanwari-v2";        // 共通データ(内容・先生・最後に開いた日付)
+const DAY_KEY_PREFIX = "jikanwari-day-"; // 日付ごとのデータ (例: jikanwari-day-2026-07-02)
+
+function dayKey(date) { return DAY_KEY_PREFIX + date; }
+
+// 共通データ(内容・先生・最後の日付)を保存
+function saveCommon() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ CONTENTS, TEACHERS, lastDate: dayInfo.date }));
+  } catch (e) { /* 保存できない環境(プレビュー等)では何もしない */ }
+}
+// その日の時間割・天気・ふりかえりを保存
+function saveDay() {
+  try {
+    localStorage.setItem(dayKey(dayInfo.date), JSON.stringify({ periods, weather: dayInfo.weather, reflections }));
+  } catch (e) {}
+}
+// 両方まとめて保存(既存のsaveAll呼び出しをそのまま使えるように残します)
+function saveAll() { saveCommon(); saveDay(); }
+
+// 指定した日付のコマ・天気を読み込む(なければ空)
+function loadDay(date) {
+  try {
+    const raw = localStorage.getItem(dayKey(date));
+    if (raw) {
+      const d = JSON.parse(raw);
+      periods = d.periods || [];
+      dayInfo.weather = d.weather || "";
+      reflections = d.reflections || [];
+      return;
+    }
+  } catch (e) {}
+  periods = [];
+  dayInfo.weather = "";
+  reflections = [];
+}
+
+// 起動時: 共通データを読み込む
+function loadCommon() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d.CONTENTS) CONTENTS = d.CONTENTS;
+    if (d.TEACHERS) TEACHERS = d.TEACHERS;
+    if (d.lastDate) dayInfo.date = d.lastDate;
+  } catch (e) {}
+}
+
+// ===== 年度の自動削除 =====
+// 年度は4月始まり。4月は猶予期間とし、5月1日以降に開いたとき、
+// 前年度3月末までの時間割を消します。取り消せない操作なので範囲を明確にしています。
+function fiscalYearStart(dateStr) {
+  // その日付が属する年度の開始年を返す(1〜3月は前年が年度開始)
+  const d = new Date(dateStr + "T00:00:00");
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1; // 1〜12
+  return (m >= 4) ? y : y - 1;
+}
+function purgeOldFiscalYears() {
+  const today = new Date();
+  const tm = today.getMonth() + 1;
+  // 5月1日以降でなければ何もしない(4月は猶予)
+  if (tm < 5) return;
+  const currentFY = fiscalYearStart(today.toISOString().slice(0, 10));
+  // 今年度と昨年度は残す。昨年度の開始(前年4月1日)より前の日付を消す。
+  // 例: 2026年5月に開くと 2025-04-01 より前(=2025年3月末まで)が消えます。
+  const keepFrom = `${currentFY - 1}-04-01`;
+  try {
+    const toDelete = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(DAY_KEY_PREFIX)) {
+        const date = key.slice(DAY_KEY_PREFIX.length);
+        if (date < keepFrom) toDelete.push(key);
+      }
+    }
+    toDelete.forEach(k => localStorage.removeItem(k));
+  } catch (e) {}
+}
+
+loadCommon();
+purgeOldFiscalYears();
+loadDay(dayInfo.date);
+
+function subjectOf(name) { return SUBJECTS.find(s => s.name === name); }
+function rubyHtml(s, withPic) {
+  return (withPic ? `<span class="pic">${s.pic}</span>` : "")
+    + `<ruby>${s.name}<rt>${s.kana}</rt></ruby>`;
+}
+
+// ===== 日付・天気バーの動作 =====
+// 日付ボタンの表示を「2026年7月2日（水曜日）」の形に更新します(空カッコが出ないよう自前で組み立て)
+const dateBtn = document.getElementById("dateBtn");
+function updateDateBtn() {
+  const d = new Date(dayInfo.date + "T00:00:00");
+  const wd = WEEKDAYS[d.getDay()];
+  dateBtn.innerHTML =
+    `<span>${d.getFullYear()}<ruby>年<rt>ねん</rt></ruby>`
+    + `${d.getMonth() + 1}<ruby>月<rt>がつ</rt></ruby>`
+    + `${d.getDate()}<ruby>日<rt>にち</rt></ruby>`
+    + `（<ruby>${wd.kanji}<rt>${wd.kana}</rt></ruby>）</span>`;
+}
+
+// 選んだ日付を反映して画面を更新する共通処理
+function applyDate(dateStr) {
+  dayInfo.date = dateStr;
+  loadDay(dayInfo.date);   // 選んだ日の時間割・天気を呼び出す
+  updateDateBtn();
+  renderWeatherBtns();     // 天気ボタンの選択状態を更新
+  renderBuild();           // その日の時間割を表示
+  saveCommon();            // 最後に開いた日付を記録
+}
+
+// ===== 自作カレンダー =====
+let calYear, calMonth; // カレンダーで今表示している年・月
+
+function openCalendar() {
+  const d = new Date(dayInfo.date + "T00:00:00");
+  calYear = d.getFullYear();
+  calMonth = d.getMonth();
+  renderCalendar();
+  openModal("calModal");
+}
+
+function renderCalendar() {
+  // 曜日の見出し
+  const weekrow = document.getElementById("calWeekrow");
+  const labels = ["日", "月", "火", "水", "木", "金", "土"];
+  weekrow.innerHTML = labels.map((l, i) =>
+    `<span class="${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${l}</span>`).join("");
+
+  document.getElementById("calTitle").textContent = `${calYear}年 ${calMonth + 1}月`;
+
+  const grid = document.getElementById("calGrid");
+  grid.innerHTML = "";
+  const first = new Date(calYear, calMonth, 1);
+  const startDay = first.getDay();           // 月初の曜日(0=日)
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // 月初まで空セルで埋める
+  for (let i = 0; i < startDay; i++) {
+    const cell = document.createElement("div");
+    cell.className = "cal-cell empty";
+    grid.appendChild(cell);
+  }
+  // 日付セル
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const dow = new Date(calYear, calMonth, day).getDay();
+    const cell = document.createElement("button");
+    cell.className = "cal-cell"
+      + (dow === 0 ? " sun" : dow === 6 ? " sat" : "")
+      + (dateStr === todayStr ? " today" : "")
+      + (dateStr === dayInfo.date ? " selected" : "");
+    cell.textContent = day;
+    cell.addEventListener("click", () => {
+      applyDate(dateStr);
+      closeModals();
+    });
+    grid.appendChild(cell);
+  }
+}
+
+dateBtn.addEventListener("click", openCalendar);
+document.getElementById("calPrev").addEventListener("click", () => {
+  calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; }
+  renderCalendar();
+});
+document.getElementById("calNext").addEventListener("click", () => {
+  calMonth++; if (calMonth > 11) { calMonth = 0; calYear++; }
+  renderCalendar();
+});
+document.getElementById("calToday").addEventListener("click", () => {
+  applyDate(new Date().toISOString().slice(0, 10));
+  closeModals();
+});
+
+updateDateBtn();
+
+const weatherBtns = document.getElementById("weatherBtns");
+function renderWeatherBtns() {
+  weatherBtns.innerHTML = "";
+  WEATHERS.forEach(w => {
+    const btn = document.createElement("button");
+    btn.className = "weather-btn" + (dayInfo.weather === w.key ? " on" : "");
+    btn.innerHTML = `<span class="pic">${w.pic}</span><ruby>${w.kanji}<rt>${w.kana}</rt></ruby>`;
+    btn.addEventListener("click", () => {
+      dayInfo.weather = (dayInfo.weather === w.key) ? "" : w.key; // もう一度押すと取り消し
+      renderWeatherBtns();
+      saveAll();
+    });
+    weatherBtns.appendChild(btn);
+  });
+}
+renderWeatherBtns();
+
+// ===== 左パレット：教科カード =====
+const paletteGrid = document.getElementById("paletteGrid");
+SUBJECTS.forEach(s => {
+  const btn = document.createElement("button");
+  btn.className = "subj-card";
+  btn.style.background = s.color;
+  btn.style.color = s.text;
+  if (s.border) btn.style.border = `3px solid ${s.border}`;
+  btn.innerHTML = `<span class="pic">${s.pic}</span>${rubyHtml(s, false)}`;
+  btn.addEventListener("click", () => {
+    periods.push({ subject: s.name, contents: [], teacherIds: [] });
+    renderBuild();
+  });
+  paletteGrid.appendChild(btn);
+});
+
+// ===== 右側：じかんわりの描画 =====
+const periodList = document.getElementById("periodList");
+
+function renderBuild() {
+  periodList.innerHTML = "";
+  if (periods.length === 0) {
+    periodList.innerHTML = `<div class="plan-empty">ひだりの カードを タップすると<br>ここに ならんでいきます</div>`;
+    saveAll();
+    return;
+  }
+  let count = 0; // 給食以外だけ数える
+  periods.forEach((p, i) => {
+    const s = subjectOf(p.subject);
+    const row = document.createElement("div");
+    row.className = "period-row";
+
+    // 時限番号（給食・昼休みには番号を振らず、そのアイコンを表示）
+    const num = document.createElement("div");
+    num.className = "period-num";
+    if (isNoNumber(p.subject)) {
+      num.textContent = s ? s.pic : "";
+    } else {
+      count++;
+      num.textContent = count;
+    }
+
+    // ①教科（カードから入るので表示のみ。ルビ付き）
+    const subj = document.createElement("div");
+    subj.className = "row-subject";
+    subj.style.background = s ? s.color : "#AFA89B";
+    subj.style.color = s ? s.text : "#FFFFFF";
+    if (s && s.border) subj.style.border = `3px solid ${s.border}`;
+    subj.innerHTML = s ? rubyHtml(s, true) : p.subject;
+
+    // ②内容（複数選べます。タップでえらぶ画面を開く）
+    const contCell = document.createElement("div");
+    contCell.className = "content-cell";
+    p.contents.forEach(c => {
+      const chip = document.createElement("span");
+      chip.className = "c-chip";
+      chip.innerHTML = contentRubyHtml(c);
+      contCell.appendChild(chip);
+    });
+    const pickBtn = document.createElement("button");
+    pickBtn.className = "pick-btn";
+    pickBtn.textContent = p.contents.length ? "かえる" : "＋ ないようを えらぶ";
+    pickBtn.addEventListener("click", () => openPicker(i));
+    contCell.appendChild(pickBtn);
+
+    // ③先生（内容と同じく、タップでえらぶ画面を開く。複数選択可）
+    const tPick = document.createElement("div");
+    tPick.className = "teacher-pick";
+    p.teacherIds.forEach(id => {
+      const t = TEACHERS.find(x => x.id === id);
+      if (!t) return;
+      const chip = document.createElement("span");
+      chip.className = "t-chip on";
+      chip.innerHTML = t.photo
+        ? `<img src="${t.photo}" alt="${t.name}">`
+        : `<span class="noimg">${t.name.slice(0, 2)}</span>`;
+      tPick.appendChild(chip);
+    });
+    const tBtn = document.createElement("button");
+    tBtn.className = "pick-btn";
+    tBtn.textContent = p.teacherIds.length ? "かえる" : "＋ せんせいを えらぶ";
+    tBtn.addEventListener("click", () => openTeacherPicker(i));
+    tPick.appendChild(tBtn);
+
+    // 行の削除
+    const del = document.createElement("button");
+    del.className = "row-del";
+    del.textContent = "✕";
+    del.addEventListener("click", () => { periods.splice(i, 1); renderBuild(); });
+
+    row.append(num, subj, contCell, tPick, del);
+    periodList.appendChild(row);
+  });
+  saveAll(); // 変更のたびに自動保存
+}
+
+// ===== 内容えらびモーダル（複数選択＋その場でリスト追加）=====
+let pickerTarget = -1; // どの時間の内容を選んでいるか
+
+function openPicker(index) {
+  pickerTarget = index;
+  renderPickerList();
+  document.getElementById("pickerNewInput").value = "";
+  document.getElementById("pickerNewKana").value = "";
+  openModal("pickerModal");
+}
+
+function renderPickerList() {
+  const list = document.getElementById("pickerList");
+  const p = periods[pickerTarget];
+  list.innerHTML = "";
+  CONTENTS.forEach(c => {
+    const wrap = document.createElement("div");
+    wrap.className = "toggle-wrap";
+
+    const btn = document.createElement("button");
+    btn.className = "toggle-btn" + (p.contents.includes(c.text) ? " on" : "");
+    btn.innerHTML = contentRubyHtml(c.text);
+    btn.addEventListener("click", () => {
+      const idx = p.contents.indexOf(c.text);
+      if (idx >= 0) p.contents.splice(idx, 1);
+      else p.contents.push(c.text);
+      renderPickerList();
+    });
+
+    // 削除ボタン（リストから消し、全時間割の選択からも外します）
+    const del = document.createElement("button");
+    del.className = "toggle-del";
+    del.textContent = "✕";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!confirm(`「${c.text}」を リストから けしますか？`)) return;
+      CONTENTS = CONTENTS.filter(x => x.text !== c.text);
+      periods.forEach(pp => {
+        pp.contents = pp.contents.filter(t => t !== c.text);
+      });
+      renderPickerList();
+      saveAll();
+    });
+
+    wrap.append(btn, del);
+    list.appendChild(wrap);
+  });
+}
+
+// その場で新しい内容をリストに追加（追加と同時に選択済みにして手数を減らします）
+document.getElementById("pickerAddBtn").addEventListener("click", () => {
+  const v = document.getElementById("pickerNewInput").value.trim();
+  const k = document.getElementById("pickerNewKana").value.trim();
+  if (!v) return;
+  if (!CONTENTS.find(x => x.text === v)) CONTENTS.push({ text: v, kana: k });
+  const p = periods[pickerTarget];
+  if (!p.contents.includes(v)) p.contents.push(v);
+  document.getElementById("pickerNewInput").value = "";
+  document.getElementById("pickerNewKana").value = "";
+  renderPickerList();
+});
+
+document.getElementById("pickerDoneBtn").addEventListener("click", () => {
+  closeModals();
+  renderBuild(); // 描画時に自動保存されます
+});
+
+// ===== 先生えらびモーダル（複数選択＋その場で追加）=====
+let teacherPickerTarget = -1;
+let tpPendingPhoto = null;
+const tpPhotoDrop = document.getElementById("tpPhotoDrop");
+const tpPhotoInput = document.getElementById("tpPhotoInput");
+
+function openTeacherPicker(index) {
+  teacherPickerTarget = index;
+  renderTeacherPickerList();
+  document.getElementById("tpNameInput").value = "";
+  tpPendingPhoto = null;
+  tpPhotoDrop.textContent = "かおじゃしんを えらぶ（タップ）";
+  openModal("teacherPickerModal");
+}
+
+function renderTeacherPickerList() {
+  const list = document.getElementById("teacherPickerList");
+  const p = periods[teacherPickerTarget];
+  list.innerHTML = "";
+  TEACHERS.forEach(t => {
+    const wrap = document.createElement("div");
+    wrap.className = "toggle-wrap";
+
+    const btn = document.createElement("button");
+    btn.className = "toggle-btn t-toggle" + (p.teacherIds.includes(t.id) ? " on" : "");
+    const face = t.photo
+      ? `<img src="${t.photo}" alt="${t.name}">`
+      : `<span class="noimg">${t.name.slice(0, 2)}</span>`;
+    btn.innerHTML = `${face}<span>${t.name}</span>`;
+    btn.addEventListener("click", () => {
+      const idx = p.teacherIds.indexOf(t.id);
+      if (idx >= 0) p.teacherIds.splice(idx, 1);
+      else p.teacherIds.push(t.id);
+      renderTeacherPickerList();
+    });
+
+    // 削除ボタン（リストから消し、全時間割の担当からも外します）
+    const del = document.createElement("button");
+    del.className = "toggle-del";
+    del.textContent = "✕";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!confirm(`「${t.name}」を リストから けしますか？`)) return;
+      TEACHERS = TEACHERS.filter(x => x.id !== t.id);
+      periods.forEach(pp => {
+        pp.teacherIds = pp.teacherIds.filter(id => id !== t.id);
+      });
+      renderTeacherPickerList();
+      saveAll();
+    });
+
+    wrap.append(btn, del);
+    list.appendChild(wrap);
+  });
+}
+
+tpPhotoDrop.addEventListener("click", () => tpPhotoInput.click());
+tpPhotoInput.addEventListener("change", () => {
+  const file = tpPhotoInput.files[0];
+  if (!file) return;
+  resizePhoto(file, url => {
+    tpPendingPhoto = url;
+    tpPhotoDrop.innerHTML = `<img src="${url}" alt="プレビュー">`;
+  });
+});
+
+// その場で新しい先生をリストに追加（追加と同時にその時間の担当として選択済みにします）
+document.getElementById("tpAddBtn").addEventListener("click", () => {
+  const name = document.getElementById("tpNameInput").value.trim();
+  if (!name) return;
+  const t = { id: "t" + Date.now(), name, photo: tpPendingPhoto };
+  TEACHERS.push(t);
+  periods[teacherPickerTarget].teacherIds.push(t.id);
+  document.getElementById("tpNameInput").value = "";
+  tpPendingPhoto = null;
+  tpPhotoDrop.textContent = "かおじゃしんを えらぶ（タップ）";
+  renderTeacherPickerList();
+});
+
+document.getElementById("tpDoneBtn").addEventListener("click", () => {
+  closeModals();
+  renderBuild();
+});
+
+// 写真の縮小処理を共通化（正方形200pxに切り抜いて軽くします）
+function resizePhoto(file, callback) {
+  const img = new Image();
+  img.onload = () => {
+    const size = 200;
+    const canvas = document.createElement("canvas");
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const min = Math.min(img.width, img.height);
+    ctx.drawImage(img, (img.width - min) / 2, (img.height - min) / 2, min, min, 0, 0, size, size);
+    callback(canvas.toDataURL("image/jpeg", 0.8));
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(file);
+}
+
+// ===== モーダル制御 =====
+function openModal(id) { document.getElementById(id).classList.add("open"); }
+function closeModals() { document.querySelectorAll(".modal-bg").forEach(m => m.classList.remove("open")); }
+document.querySelectorAll("[data-close]").forEach(b => b.addEventListener("click", closeModals));
+
+// 内容の追加
+document.getElementById("addContentBtn").addEventListener("click", () => {
+  document.getElementById("contentInput").value = "";
+  document.getElementById("contentKanaInput").value = "";
+  openModal("contentModal");
+});
+document.getElementById("contentSaveBtn").addEventListener("click", () => {
+  const v = document.getElementById("contentInput").value.trim();
+  const k = document.getElementById("contentKanaInput").value.trim();
+  if (!v) return;
+  if (!CONTENTS.find(x => x.text === v)) CONTENTS.push({ text: v, kana: k });
+  closeModals();
+  renderBuild();
+});
+
+// 先生の追加（写真は共通の縮小処理で200pxにしてから保持し、動作を軽く保ちます）
+let pendingPhoto = null;
+const photoDrop = document.getElementById("photoDrop");
+const photoInput = document.getElementById("photoInput");
+photoDrop.addEventListener("click", () => photoInput.click());
+photoInput.addEventListener("change", () => {
+  const file = photoInput.files[0];
+  if (!file) return;
+  resizePhoto(file, url => {
+    pendingPhoto = url;
+    photoDrop.innerHTML = `<img src="${url}" alt="プレビュー">`;
+  });
+});
+document.getElementById("addTeacherBtn").addEventListener("click", () => {
+  document.getElementById("teacherNameInput").value = "";
+  pendingPhoto = null;
+  photoDrop.textContent = "かおじゃしんを えらぶ（タップ）";
+  openModal("teacherModal");
+});
+document.getElementById("teacherSaveBtn").addEventListener("click", () => {
+  const name = document.getElementById("teacherNameInput").value.trim();
+  if (!name) return;
+  TEACHERS.push({ id: "t" + Date.now(), name, photo: pendingPhoto });
+  closeModals();
+  renderBuild();
+});
+
+// ===== みる画面（生徒向け表示）=====
+const viewList = document.getElementById("viewList");
+
+function renderView() {
+  // 日付・曜日・天気の表示
+  const vd = document.getElementById("viewDay");
+  const d = new Date(dayInfo.date + "T00:00:00");
+  const wd = WEEKDAYS[d.getDay()];
+  const w = WEATHERS.find(x => x.key === dayInfo.weather);
+  vd.innerHTML =
+    `<span>${d.getMonth() + 1}<ruby>月<rt>がつ</rt></ruby>${d.getDate()}<ruby>日<rt>にち</rt></ruby>（<ruby>${wd.kanji}<rt>${wd.kana}</rt></ruby>）</span>`
+    + (w ? `<span><span class="w-pic">${w.pic}</span> <ruby>${w.kanji}<rt>${w.kana}</rt></ruby></span>` : "");
+
+  viewList.innerHTML = "";
+  let count = 0; // 給食以外だけ数える
+  periods.forEach((p, i) => {
+    if (!p.subject) return;
+    const s = subjectOf(p.subject);
+    const noNum = isNoNumber(p.subject);
+    if (!noNum) count++;
+    const numLabel = noNum ? (s ? s.pic : "") : count;
+    const badgeBorder = (s && s.border) ? `;border:4px solid ${s.border}` : "";
+    const card = document.createElement("div");
+    card.className = "view-card" + (i === nowIndex ? " now" : "");
+
+    const teachersHtml = p.teacherIds.map(id => {
+      const t = TEACHERS.find(x => x.id === id);
+      if (!t) return "";
+      const face = t.photo
+        ? `<img src="${t.photo}" alt="${t.name}">`
+        : `<div class="noimg">${t.name.slice(0, 2)}</div>`;
+      return `<div class="v-teacher">${face}${t.name}</div>`;
+    }).join("");
+
+    const contentText = p.contents.map(c => contentRubyHtml(c)).join("・");
+    card.innerHTML = `
+      <div class="v-num">${numLabel}</div>
+      <div class="v-subject" style="background:${s ? s.color : "#AFA89B"};color:${s ? s.text : "#FFFFFF"}${badgeBorder}">${s ? rubyHtml(s, true) : p.subject}</div>
+      <div class="v-content">${contentText}</div>
+      <div class="v-teachers">${teachersHtml}</div>`;
+
+    // カードをタップすると「いま」の印がつく（朝の会での確認用）
+    card.addEventListener("click", () => {
+      nowIndex = (nowIndex === i) ? -1 : i;
+      renderView();
+      // 読み上げは漢字だと誤読しやすいため、ふりがなを渡します
+      if (nowIndex === i) speak(`いまは、${s ? s.kana : p.subject}。${p.contents.map(c => contentKana(c)).join("、")}`);
+    });
+    viewList.appendChild(card);
+  });
+  renderReflection();
+}
+
+// ===== 1日のふりかえり =====
+// その日の内容から選び、評価を付けて、文章になるよう組み立てます。
+// 内容の選択肢は、その日の時間割に入れた内容だけに絞ります(実際にやったことから選ぶため)。
+function todaysContents() {
+  const set = [];
+  periods.forEach(p => p.contents.forEach(c => { if (!set.includes(c)) set.push(c); }));
+  return set;
+}
+
+function renderReflection() {
+  const addArea = document.getElementById("reflectAdd");
+  const contents = todaysContents();
+  addArea.innerHTML = "";
+
+  reflections.forEach((r, i) => {
+    const line = document.createElement("div");
+    line.className = "reflect-line";
+
+    // 内容の選択(その日にやった内容から)
+    // プルダウンの中はルビが使えないため「着替え（きがえ）」形式でふりがなを添えます
+    const cSel = document.createElement("select");
+    cSel.innerHTML = `<option value="">--ないよう--</option>` +
+      contents.map(c => {
+        const kana = contentKana(c);
+        const label = (kana && kana !== c) ? `${c}（${kana}）` : c;
+        return `<option value="${c}" ${r.content === c ? "selected" : ""}>${label}</option>`;
+      }).join("");
+    cSel.addEventListener("change", e => { r.content = e.target.value; renderReflection(); saveDay(); });
+
+    // 評価の選択（漢字を含むきもちはふりがなをカッコ書きで添えます）
+    const eSel = document.createElement("select");
+    eSel.innerHTML = `<option value="">--きもち--</option>` +
+      EVALS.map(ev => {
+        const label = (ev.kana && ev.kana !== ev.label) ? `${ev.label}（${ev.kana}）` : ev.label;
+        return `<option value="${ev.key}" ${r.evalKey === ev.key ? "selected" : ""}>${label}</option>`;
+      }).join("");
+    eSel.addEventListener("change", e => { r.evalKey = e.target.value; renderReflection(); saveDay(); });
+
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.textContent = "→";
+
+    const del = document.createElement("button");
+    del.className = "del";
+    del.textContent = "✕";
+    del.addEventListener("click", () => { reflections.splice(i, 1); renderReflection(); saveDay(); });
+
+    line.append(cSel, arrow, eSel, del);
+    addArea.appendChild(line);
+  });
+
+  // 「ふやす」ボタン(その日に内容が入っているときだけ出す)
+  const addBtn = document.createElement("button");
+  addBtn.className = "reflect-add-btn";
+  addBtn.textContent = "＋ ふりかえりを ふやす";
+  addBtn.addEventListener("click", () => { reflections.push({ content: "", evalKey: "" }); renderReflection(); saveDay(); });
+  if (contents.length === 0) {
+    addArea.innerHTML = `<div style="color:#A79E8E;font-weight:700">じかんわりに ないようを いれると えらべます</div>`;
+  } else {
+    addArea.appendChild(addBtn);
+  }
+
+  // 選んだ内容＋評価を文章にする
+  buildSentence();
+}
+
+function buildSentence() {
+  const box = document.getElementById("reflectSentence");
+  const parts = reflections
+    .filter(r => r.content && r.evalKey)
+    .map(r => {
+      const ev = EVALS.find(e => e.key === r.evalKey);
+      if (!ev) return ""; // きもちが削除済みなら文にしない
+      return contentRubyHtml(r.content) + ev.end;
+    })
+    .filter(Boolean);
+  box.innerHTML = parts.join(" ");
+}
+
+function speak(text) {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "ja-JP";
+  u.rate = 0.9;
+  speechSynthesis.speak(u);
+}
+
+document.getElementById("showBtn").addEventListener("click", () => {
+  nowIndex = -1;
+  renderView();
+  document.querySelectorAll(".screen").forEach(sc => sc.classList.remove("active"));
+  document.getElementById("screen-view").classList.add("active");
+});
+document.getElementById("printBtn").addEventListener("click", () => {
+  window.print(); // 表示中のみる画面をそのまま印刷します
+});
+document.getElementById("backBtn").addEventListener("click", () => {
+  document.querySelectorAll(".screen").forEach(sc => sc.classList.remove("active"));
+  document.getElementById("screen-build").classList.add("active");
+  renderBuild();
+});
+
+renderBuild();
+</script>
+</body>
+</html>
