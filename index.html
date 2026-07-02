@@ -159,7 +159,7 @@
   .period-row {
     background: var(--bg); border: 3px solid var(--line); border-radius: 16px;
     padding: 10px 12px; margin-bottom: 10px;
-    display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 10px; align-items: center;
+    display: grid; grid-template-columns: auto auto 1fr minmax(200px, auto) auto; gap: 10px; align-items: center;
   }
   .period-num {
     width: 46px; height: 46px; border-radius: 50%;
@@ -218,7 +218,7 @@
   .add-inline { display: flex; gap: 8px; }
   .add-inline input { flex: 1; }
   .add-inline .sub-btn { white-space: nowrap; }
-  .teacher-pick { display: flex; gap: 5px; align-items: center; flex-wrap: wrap; min-width: 108px; }
+  .teacher-pick { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; min-width: 200px; }
   .t-chip {
     border: 3px solid var(--line); background: white; border-radius: 999px;
     padding: 2px; cursor: pointer; line-height: 0;
