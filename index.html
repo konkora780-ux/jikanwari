@@ -191,27 +191,28 @@
     padding: 8px 14px; cursor: pointer; font-size: 0.9rem; min-height: 44px;
   }
   /* 内容えらびモーダルのトグルボタン */
-  .toggle-list { display: flex; flex-wrap: wrap; gap: 8px; max-height: 40vh; overflow-y: auto; padding: 12px 12px 4px; }
+  .toggle-list { display: flex; flex-wrap: wrap; gap: 14px; max-height: 40vh; overflow-y: auto; padding: 14px 14px 6px; }
   .toggle-wrap { position: relative; }
   .toggle-btn {
     font-family: inherit; font-weight: 700; color: var(--ink);
     background: white; border: 3px solid var(--line); border-radius: 999px;
-    padding: 9px 18px; cursor: pointer; font-size: 0.95rem;
+    padding: 16px 30px; cursor: pointer; font-size: clamp(1.1rem, 2.2vw, 1.4rem);
+    min-height: 60px; display: flex; align-items: center;
   }
   .toggle-del {
-    position: absolute; top: -8px; right: -8px;
-    width: 26px; height: 26px; border-radius: 50%;
+    position: absolute; top: -10px; right: -10px;
+    width: 32px; height: 32px; border-radius: 50%;
     background: #C95B5B; color: white; border: 2px solid white;
-    font-family: inherit; font-weight: 900; font-size: 0.9rem; line-height: 1;
+    font-family: inherit; font-weight: 900; font-size: 1.05rem; line-height: 1;
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     box-shadow: 0 1px 3px rgba(0,0,0,0.3);
   }
   .toggle-btn.on { border-color: var(--accent); background: #E9F6EE; }
-  .t-toggle { display: flex; align-items: center; gap: 8px; }
+  .t-toggle { display: flex; align-items: center; gap: 10px; }
   .t-toggle img, .t-toggle .noimg {
-    width: 40px; height: 40px; border-radius: 50%; object-fit: cover;
+    width: 50px; height: 50px; border-radius: 50%; object-fit: cover;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 900; font-size: 0.75rem; background: #EFE9DC;
+    font-weight: 900; font-size: 0.85rem; background: #EFE9DC;
   }
   .add-inline { display: flex; gap: 8px; }
   .add-inline input { flex: 1; }
@@ -242,8 +243,8 @@
     background: white; border-radius: 24px; padding: 24px;
     width: min(92vw, 440px); display: flex; flex-direction: column; gap: 14px;
   }
-  .modal.wide { width: min(94vw, 620px); }
-  .modal.wide .toggle-list { max-height: 55vh; }
+  .modal.wide { width: min(96vw, 860px); }
+  .modal.wide .toggle-list { max-height: 62vh; }
   .modal h2 { font-size: 1.15rem; font-weight: 900; margin-bottom: 2px; }
   .modal input[type="text"] {
     font-family: inherit; font-weight: 700; font-size: 1.1rem; color: var(--ink);
