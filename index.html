@@ -385,6 +385,37 @@
     .reflect-title { font-size: 13pt; margin-bottom: 6pt; }
     .reflect-add, .reflect-add-btn { display: none !important; } /* 選択欄は印刷しない */
     .reflect-sentence { background: white; font-size: 13pt !important; padding: 6pt 10pt; }
+    /* ふりかえりの文が空の日は、印刷では箱ごと隠してスペースを節約します */
+    .reflect-sentence:empty::before { content: none !important; }
+    body.no-reflection .reflect-box { display: none !important; }
+
+    /* コマ数が多い日は自動で一段コンパクトに（10〜11コマ）。確実にA4 1枚へ収めます */
+    body.print-compact h1 { font-size: 14pt !important; margin-bottom: 4pt; }
+    body.print-compact .view-day { font-size: 12pt !important; margin-bottom: 4pt; }
+    body.print-compact .view-list { gap: 4pt; }
+    body.print-compact .view-card { padding: 4pt 8pt; gap: 6pt; }
+    body.print-compact .v-num { width: 28pt; height: 28pt; font-size: 12pt; }
+    body.print-compact .v-subject { font-size: 11pt !important; padding: 3pt 8pt; min-width: 60pt; }
+    body.print-compact .v-content { font-size: 11pt !important; }
+    body.print-compact .v-teacher { font-size: 7pt; }
+    body.print-compact .v-teacher img, body.print-compact .v-teacher .noimg { width: 28pt; height: 28pt; }
+    body.print-compact .reflect-box { padding: 6pt 10pt; margin-top: 4pt; }
+    body.print-compact .reflect-title { font-size: 11pt; margin-bottom: 4pt; }
+    body.print-compact .reflect-sentence { font-size: 11pt !important; padding: 5pt 8pt; }
+
+    /* さらにコマ数が多い日は二段コンパクトに（12コマ以上）*/
+    body.print-ultra h1 { font-size: 13pt !important; margin-bottom: 3pt; }
+    body.print-ultra .view-day { font-size: 11pt !important; margin-bottom: 3pt; }
+    body.print-ultra .view-list { gap: 3pt; }
+    body.print-ultra .view-card { padding: 3pt 7pt; gap: 5pt; border-width: 1.5px; }
+    body.print-ultra .v-num { width: 24pt; height: 24pt; font-size: 11pt; }
+    body.print-ultra .v-subject { font-size: 10pt !important; padding: 2pt 7pt; min-width: 54pt; }
+    body.print-ultra .v-content { font-size: 10pt !important; }
+    body.print-ultra .v-teacher { font-size: 6pt; }
+    body.print-ultra .v-teacher img, body.print-ultra .v-teacher .noimg { width: 24pt; height: 24pt; }
+    body.print-ultra .reflect-box { padding: 5pt 9pt; margin-top: 3pt; }
+    body.print-ultra .reflect-title { font-size: 10pt; margin-bottom: 3pt; }
+    body.print-ultra .reflect-sentence { font-size: 10pt !important; padding: 4pt 7pt; }
   }
 </style>
 </head>
@@ -1300,6 +1331,15 @@ document.getElementById("showBtn").addEventListener("click", () => {
   document.getElementById("screen-view").classList.add("active");
 });
 document.getElementById("printBtn").addEventListener("click", () => {
+  // コマ数に応じて自動で縮小し、A4 1枚に「ふりかえり」まで確実に収めます
+  // （print-compact / print-ultra は印刷のときだけ効くので、画面表示は変わりません）
+  const n = document.getElementById("viewList").children.length;
+  document.body.classList.remove("print-compact", "print-ultra");
+  if (n >= 12) document.body.classList.add("print-ultra");
+  else if (n >= 10) document.body.classList.add("print-compact");
+  // ふりかえりの文が空の日は、印刷では箱ごと隠します
+  const hasReflection = document.getElementById("reflectSentence").innerHTML.trim() !== "";
+  document.body.classList.toggle("no-reflection", !hasReflection);
   window.print(); // 表示中のみる画面をそのまま印刷します
 });
 document.getElementById("backBtn").addEventListener("click", () => {
