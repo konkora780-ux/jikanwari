@@ -1255,8 +1255,9 @@ document.getElementById("kondateApplyBtn").addEventListener("click", () => {
   if (lines.length === 0) { setKondateStatus("いれる りょうりめいが ありません。"); return; }
   // 1品＝1チップにするため、行ごとに別々の内容として入れます
   periods[kondateTarget].contents = lines;
-  // 読み上げ・ルビのために、まだ無い料理名は内容の一覧にも足しておきます
-  lines.forEach(t => { if (!CONTENTS.find(x => x.text === t)) CONTENTS.push({ text: t, kana: "" }); });
+  // 料理名は「ないよう」の一覧には足しません。給食は毎日変わるため、
+  // 足すと一覧が料理名だらけになって、ふだん使う内容が選びにくくなるからです。
+  // (一覧に無い内容もそのまま表示・読み上げできます)
   closeModals();
   saveAll();
   renderBuild();
