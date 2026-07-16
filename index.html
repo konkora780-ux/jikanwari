@@ -1204,8 +1204,10 @@ function analyzeKondate(base64) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${KONDATE_CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
   const prompt = [
     "これは学校給食の献立表の写真です。",
-    "ピンク色の枠で囲まれた部分の中にある料理名だけを抜き出してください。",
-    "・1行に1つの料理名だけを書く",
+    "ピンク色の枠で囲まれた部分の中にある料理名を、1つも省略せず、すべて抜き出してください。",
+    "・料理は1行に1つずつ書く",
+    "・「ごはん／牛乳」のように「／」や「・」「、」で複数の料理が並んでいるときは、必ず料理ごとに改行して別々の行にする",
+    "・牛乳やお茶などの飲み物も1つの料理として書く",
     "・番号、記号、材料名、エネルギー量、日付は書かない",
     "・ピンク枠の外にあるものは無視する",
     "・料理名以外の説明文は一切書かない"
@@ -1241,11 +1243,13 @@ function analyzeKondate(base64) {
   .catch(() => setKondateStatus("つうしんに しっぱいしました。ネットワークを たしかめてください。"));
 }
 
-// 先頭の番号や記号(「1. 」「・」「- 」など)を落として、空行を除きます
+// 1品＝1行にそろえる。改行に加え、「／」「/」「・」「、」で区切られた
+// ものも1品ずつに分ける（AIが複数料理を1行にまとめて返すことがあるため）。
+// そのうえで先頭の番号や記号(「1. 」「- 」など)を落とし、空行を除きます。
 function cleanKondateLines(text) {
   return String(text || "")
-    .split("\n")
-    .map(s => s.replace(/^[\s　]*[-・*●○◆■\d]+[.．、)）:：]?[\s　]*/, "").trim())
+    .split(/[\n／/・、]/)
+    .map(s => s.replace(/^[\s　]*[-*●○◆■\d]+[.．)）:：]?[\s　]*/, "").trim())
     .filter(s => s.length > 0);
 }
 
