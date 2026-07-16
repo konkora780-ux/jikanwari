@@ -272,6 +272,16 @@
     background: white; border: 3px solid var(--line); border-radius: 999px;
     padding: 8px 14px; font-weight: 700; font-size: 1rem;
   }
+  /* 内容を教科ごとに分けて見せるための、グループの見出し */
+  .settings-sublabel {
+    flex-basis: 100%; width: 100%; font-weight: 900; font-size: 0.9rem;
+    color: #6B7A6C; margin-top: 4px;
+  }
+  .settings-sublabel:first-child { margin-top: 0; }
+  .add-inline select {
+    font-family: inherit; font-weight: 700; font-size: 1rem; color: var(--ink);
+    border: 3px solid var(--line); border-radius: 12px; padding: 10px;
+  }
   .settings-chip img, .settings-chip .noimg {
     width: 38px; height: 38px; border-radius: 50%; object-fit: cover;
     display: flex; align-items: center; justify-content: center;
@@ -548,7 +558,7 @@
 <!-- モーダル: 内容えらび（複数選択・生徒も使う。追加/削除は設定画面で行う） -->
 <div class="modal-bg" id="pickerModal">
   <div class="modal wide">
-    <h2>ないよう を えらぶ（いくつでも）</h2>
+    <h2 id="pickerTitle">ないよう を えらぶ（いくつでも）</h2>
     <div class="toggle-list" id="pickerList"></div>
     <div class="btn-row" style="margin-top:0">
       <button class="big-btn" id="pickerDoneBtn" style="padding:10px 40px">きめた</button>
@@ -562,9 +572,14 @@
     <h2>⚙️ せってい</h2>
 
     <div class="settings-section">
-      <div class="settings-label">ないよう</div>
+      <div class="settings-label">ないよう（きょうかごと）</div>
+      <div style="font-size:0.85rem;color:#948B7C;font-weight:700;margin-bottom:8px">
+        「みんな」は どの きょうかでも でます。<br>
+        きょうかを えらぶと、その きょうかを えらんだ ときだけ でる ないように なります。
+      </div>
       <div class="settings-list" id="settingsContentList"></div>
-      <div class="add-inline">
+      <div class="add-inline" style="flex-wrap:wrap">
+        <select id="contentSubjectSelect"></select>
         <input type="text" id="contentInput" placeholder="あたらしい ないよう">
         <input type="text" id="contentKanaInput" placeholder="ふりがな（かんじの とき）">
         <button class="sub-btn" id="contentSaveBtn">ついか</button>
@@ -1072,6 +1087,12 @@ function renderBuild() {
 // ===== 内容えらびモーダル（複数選択＋その場でリスト追加）=====
 let pickerTarget = -1; // どの時間の内容を選んでいるか
 
+// その教科で出す内容の候補（「みんな(共通)」＋その教科のもの）を返す。
+// subject が空(未設定)のものは「みんな」あつかい＝どの教科でも出します。
+function contentsForSubject(subject) {
+  return CONTENTS.filter(c => !c.subject || c.subject === subject);
+}
+
 function openPicker(index) {
   pickerTarget = index;
   renderPickerList();
@@ -1081,8 +1102,16 @@ function openPicker(index) {
 function renderPickerList() {
   const list = document.getElementById("pickerList");
   const p = periods[pickerTarget];
+  document.getElementById("pickerTitle").textContent = `「${p.subject}」の ないよう を えらぶ（いくつでも）`;
   list.innerHTML = "";
-  CONTENTS.forEach(c => {
+  // この教科で出す候補。すでに選ばれているのに候補に無いもの（給食の写真入力や、
+  // 別の教科に付け替えられた内容など）も、外せるように末尾に足して表示します。
+  const items = contentsForSubject(p.subject);
+  const shownTexts = items.map(c => c.text);
+  p.contents.forEach(t => {
+    if (!shownTexts.includes(t)) items.push({ text: t, kana: (CONTENTS.find(x => x.text === t) || {}).kana || "" });
+  });
+  items.forEach(c => {
     const btn = document.createElement("button");
     btn.className = "toggle-btn" + (p.contents.includes(c.text) ? " on" : "");
     btn.innerHTML = contentRubyHtml(c.text);
@@ -1094,6 +1123,9 @@ function renderPickerList() {
     });
     list.appendChild(btn);
   });
+  if (items.length === 0) {
+    list.innerHTML = `<div style="color:#948B7C;font-weight:700;padding:8px">この きょうかの ないようは まだ ありません。<br>⚙️せってい で ついか できます。</div>`;
+  }
 }
 
 document.getElementById("pickerDoneBtn").addEventListener("click", () => {
@@ -1283,6 +1315,7 @@ document.getElementById("openSettingsBtn").addEventListener("click", () => {
 });
 
 function renderSettings() {
+  renderContentSubjectSelect();
   renderSettingsContent();
   renderSettingsTeacher();
   renderGeminiKey();
@@ -1310,42 +1343,89 @@ document.getElementById("geminiKeyClearBtn").addEventListener("click", () => {
   renderGeminiKey();
 });
 
-// 内容の一覧＋削除
+// 「ないよう」を追加するときに選ぶ教科の一覧を作る。先頭は「みんな(共通)」。
+function renderContentSubjectSelect() {
+  const sel = document.getElementById("contentSubjectSelect");
+  const cur = sel.value; // 選択中を覚えておく
+  sel.innerHTML = "";
+  const opt0 = document.createElement("option");
+  opt0.value = ""; opt0.textContent = "みんな";
+  sel.appendChild(opt0);
+  SUBJECTS.filter(s => s.active).forEach(s => {
+    const o = document.createElement("option");
+    o.value = s.name; o.textContent = s.name;
+    sel.appendChild(o);
+  });
+  // 前に選んでいた教科が残っていれば、それを選び直す
+  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+}
+
+// 内容の一覧＋削除（「みんな」→各教科 の順に、見出しをつけて分けて表示）
 function renderSettingsContent() {
   const list = document.getElementById("settingsContentList");
   list.innerHTML = "";
-  CONTENTS.forEach(c => {
-    const chip = document.createElement("div");
-    chip.className = "settings-chip";
-    const label = document.createElement("span");
-    label.innerHTML = contentRubyHtml(c.text);
-    const del = document.createElement("button");
-    del.className = "del";
-    del.textContent = "✕";
-    del.addEventListener("click", () => {
-      if (!confirm(`「${c.text}」を けしますか？`)) return;
-      CONTENTS = CONTENTS.filter(x => x.text !== c.text);
-      // 使用中の時間割からも外します(消した内容が残らないように)
-      periods.forEach(p => { p.contents = p.contents.filter(t => t !== c.text); });
-      renderSettingsContent();
-      saveAll();
-      renderBuild();
+  // 表示するグループ: みんな(共通) → いま使う教科。
+  const groups = [{ key: "", label: "みんな（きょうつう）" }]
+    .concat(SUBJECTS.filter(s => s.active).map(s => ({ key: s.name, label: s.name })));
+  // 使っていない教科に付いた内容も、消せるように末尾のグループとして出す
+  const shownKeys = groups.map(g => g.key);
+  [...new Set(CONTENTS.map(c => c.subject).filter(s => s && !shownKeys.includes(s)))]
+    .forEach(s => groups.push({ key: s, label: s + "（いまは つかっていない）" }));
+
+  let any = false;
+  groups.forEach(g => {
+    const items = CONTENTS.filter(c => (c.subject || "") === g.key);
+    if (items.length === 0) return;
+    any = true;
+    const head = document.createElement("div");
+    head.className = "settings-sublabel";
+    head.textContent = g.label;
+    list.appendChild(head);
+    items.forEach(c => {
+      const chip = document.createElement("div");
+      chip.className = "settings-chip";
+      const label = document.createElement("span");
+      label.innerHTML = contentRubyHtml(c.text);
+      const del = document.createElement("button");
+      del.className = "del";
+      del.textContent = "✕";
+      del.addEventListener("click", () => {
+        if (!confirm(`「${c.text}」を けしますか？`)) return;
+        CONTENTS = CONTENTS.filter(x => x.text !== c.text);
+        // 使用中の時間割からも外します(消した内容が残らないように)
+        periods.forEach(p => { p.contents = p.contents.filter(t => t !== c.text); });
+        renderSettingsContent();
+        saveAll();
+        renderBuild();
+      });
+      chip.append(label, del);
+      list.appendChild(chip);
     });
-    chip.append(label, del);
-    list.appendChild(chip);
   });
+  if (!any) {
+    list.innerHTML = `<div style="color:#948B7C;font-weight:700">まだ ないようが ありません。したから ついか できます。</div>`;
+  }
 }
 
-// 内容の追加
+// 内容の追加（選んだ教科に属する内容として足す。「みんな」なら subject は空）
 document.getElementById("contentSaveBtn").addEventListener("click", () => {
   const v = document.getElementById("contentInput").value.trim();
   const k = document.getElementById("contentKanaInput").value.trim();
+  const subject = document.getElementById("contentSubjectSelect").value;
   if (!v) return;
-  if (!CONTENTS.find(x => x.text === v)) CONTENTS.push({ text: v, kana: k });
+  const existing = CONTENTS.find(x => x.text === v);
+  if (existing) {
+    // 同じ名前が既にあれば、教科(所属)とふりがなを選んだ内容に更新します
+    existing.subject = subject;
+    if (k) existing.kana = k;
+  } else {
+    CONTENTS.push({ text: v, kana: k, subject });
+  }
   document.getElementById("contentInput").value = "";
   document.getElementById("contentKanaInput").value = "";
   renderSettingsContent();
-  saveCommon();
+  saveAll();     // 所属変更を時間割の表示にも反映するため saveAll + renderBuild
+  renderBuild();
 });
 
 // 先生の一覧＋削除
