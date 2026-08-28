@@ -577,10 +577,12 @@
   <div class="modal wide">
     <h2 id="pickerTitle">ないよう を えらぶ（いくつでも）</h2>
     <div class="toggle-list" id="pickerList"></div>
-    <div class="add-inline" style="margin-top:4px">
+    <div class="add-inline" style="margin-top:4px;flex-wrap:wrap">
       <input type="text" id="pickerOneOffInput" placeholder="きょうだけの ないよう（いちどだけ・一覧には のこりません）">
+      <input type="text" id="pickerOneOffKanaInput" placeholder="ふりがな（かんじの とき）" style="max-width:180px">
       <button class="sub-btn" id="pickerOneOffBtn">ついか</button>
     </div>
+    <div class="settings-list" id="pickerOneOffMetaList" style="display:none"></div>
     <div class="btn-row" style="margin-top:0">
       <button class="big-btn" id="pickerDoneBtn" style="padding:10px 40px">きめた</button>
     </div>
@@ -719,20 +721,29 @@ function migrateContentSubjects() {
   });
 }
 
+// 内容の ふりがな を返す。「ないよう」一覧に無い(=きょうだけの内容)ものは oneOffMeta から探す
+function contentKanaRaw(text) {
+  const c = CONTENTS.find(x => x.text === text);
+  if (c && c.kana) return c.kana;
+  const m = oneOffMeta[text];
+  return (m && m.kana) ? m.kana : "";
+}
 // 内容をルビ(ふりがな)付きHTMLにする。ふりがなが無いものはそのまま表示
 function contentRubyHtml(text) {
-  const c = CONTENTS.find(x => x.text === text);
-  return (c && c.kana) ? `<ruby>${c.text}<rt>${c.kana}</rt></ruby>` : text;
+  const kana = contentKanaRaw(text);
+  return kana ? `<ruby>${text}<rt>${kana}</rt></ruby>` : text;
 }
 // 読み上げ用。ふりがながあればそれを使い、誤読を防ぐ
 function contentKana(text) {
-  const c = CONTENTS.find(x => x.text === text);
-  return (c && c.kana) ? c.kana : text;
+  return contentKanaRaw(text) || text;
 }
 // 内容に付けたドロップス・シンボルの画像(data URL)を返す。無ければ空文字
+// 「ないよう」一覧に無い(=きょうだけの内容)ものは oneOffMeta から探す
 function contentImg(text) {
   const c = CONTENTS.find(x => x.text === text);
-  return (c && c.img) ? c.img : "";
+  if (c && c.img) return c.img;
+  const m = oneOffMeta[text];
+  return (m && m.img) ? m.img : "";
 }
 
 // ===== 先生の一覧（初期は空。えらぶ画面から顔写真付きで追加できます）=====
@@ -780,6 +791,9 @@ const EVALS = [
 ];
 // その日のふりかえり: [{ content: "そうじ", evalKey: "gambatta" }, ...]
 let reflections = [];
+// 「きょうだけの ないよう」に付けた ふりがな・え（「ないよう」一覧には残さず、日付ごとに保存）
+// 形式: { "テスト内容": { kana: "てすとないよう", img: "data:..." } }
+let oneOffMeta = {};
 
 // ===== 保存機能 =====
 // 仕組み: 内容・先生リストは全日付で共通、時間割のコマと天気は日付ごとに保存します。
@@ -799,11 +813,17 @@ function saveCommon() {
     localStorage.setItem(SAVE_KEY, JSON.stringify({ CONTENTS, TEACHERS, subjActive, lastDate: dayInfo.date }));
   } catch (e) { /* 保存できない環境(プレビュー等)では何もしない */ }
 }
-// その日の時間割・天気・ふりかえりを保存
+// その日の時間割・天気・ふりかえり・単発内容のふりがな/えを保存
 function saveDay() {
+  pruneOneOffMeta();
   try {
-    localStorage.setItem(dayKey(dayInfo.date), JSON.stringify({ periods, weather: dayInfo.weather, reflections }));
+    localStorage.setItem(dayKey(dayInfo.date), JSON.stringify({ periods, weather: dayInfo.weather, reflections, oneOffMeta }));
   } catch (e) {}
+}
+// もう どの時間にも使われていない「きょうだけの ないよう」のふりがな/えは消しておく
+function pruneOneOffMeta() {
+  const used = new Set(periods.flatMap(p => p.contents));
+  Object.keys(oneOffMeta).forEach(text => { if (!used.has(text)) delete oneOffMeta[text]; });
 }
 // 両方まとめて保存(既存のsaveAll呼び出しをそのまま使えるように残します)
 function saveAll() { saveCommon(); saveDay(); }
@@ -817,12 +837,14 @@ function loadDay(date) {
       periods = d.periods || [];
       dayInfo.weather = d.weather || "";
       reflections = d.reflections || [];
+      oneOffMeta = d.oneOffMeta || {};
       return;
     }
   } catch (e) {}
   periods = [];
   dayInfo.weather = "";
   reflections = [];
+  oneOffMeta = {};
 }
 
 // 起動時: 共通データを読み込む
@@ -1161,7 +1183,7 @@ function renderPickerList() {
   const items = contentsForSubject(p.subject);
   const shownTexts = items.map(c => c.text);
   p.contents.forEach(t => {
-    if (!shownTexts.includes(t)) items.push({ text: t, kana: (CONTENTS.find(x => x.text === t) || {}).kana || "" });
+    if (!shownTexts.includes(t)) items.push({ text: t });
   });
   items.forEach(c => {
     const btn = document.createElement("button");
@@ -1179,6 +1201,7 @@ function renderPickerList() {
   if (items.length === 0) {
     list.innerHTML = `<div style="color:#948B7C;font-weight:700;padding:8px">この きょうかの ないようは まだ ありません。<br>⚙️せってい で ついか できます。</div>`;
   }
+  renderPickerOneOffMetaList();
 }
 
 document.getElementById("pickerDoneBtn").addEventListener("click", () => {
@@ -1189,24 +1212,64 @@ document.getElementById("pickerDoneBtn").addEventListener("click", () => {
 // 単発の内容（この時間だけ・「ないよう」の一覧には足さず、この日の時間割にだけ入れる）
 function addOneOffContent() {
   const input = document.getElementById("pickerOneOffInput");
+  const kanaInput = document.getElementById("pickerOneOffKanaInput");
   const v = input.value.trim();
+  const k = kanaInput.value.trim();
   if (!v) return;
   const p = periods[pickerTarget];
   if (!p.contents.includes(v)) p.contents.push(v);
+  // ふりがなを付けた場合だけ oneOffMeta に記録（同じ名前で再追加すればふりがなを更新できます）
+  if (k) oneOffMeta[v] = { ...(oneOffMeta[v] || {}), kana: k };
   input.value = "";
+  kanaInput.value = "";
   renderPickerList();
 }
 document.getElementById("pickerOneOffBtn").addEventListener("click", addOneOffContent);
-document.getElementById("pickerOneOffInput").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); addOneOffContent(); }
+[document.getElementById("pickerOneOffInput"), document.getElementById("pickerOneOffKanaInput")].forEach(el => {
+  el.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addOneOffContent(); } });
 });
+
+// いま この時間に入っている「きょうだけの ないよう」に、絵をつける／はずすための一覧
+function renderPickerOneOffMetaList() {
+  const wrap = document.getElementById("pickerOneOffMetaList");
+  const p = periods[pickerTarget];
+  const texts = p.contents.filter(t => !CONTENTS.some(c => c.text === t));
+  wrap.innerHTML = "";
+  wrap.style.display = texts.length ? "flex" : "none";
+  texts.forEach(t => {
+    const chip = document.createElement("div");
+    chip.className = "settings-chip";
+    const img = contentImg(t);
+    if (img) {
+      const im = document.createElement("img");
+      im.className = "c-img"; im.src = img; im.alt = "";
+      chip.appendChild(im);
+    }
+    const label = document.createElement("span");
+    label.innerHTML = contentRubyHtml(t);
+    const symBtn = document.createElement("button");
+    symBtn.className = "sym-btn";
+    symBtn.textContent = img ? "🖼️かえる" : "🖼️え";
+    symBtn.addEventListener("click", () => openSymbolPicker(t, { oneOff: true }));
+    chip.append(label, symBtn);
+    if (img) {
+      const clrBtn = document.createElement("button");
+      clrBtn.className = "sym-btn";
+      clrBtn.textContent = "はずす";
+      clrBtn.addEventListener("click", () => clearSymbol(t, { oneOff: true }));
+      chip.append(clrBtn);
+    }
+    wrap.appendChild(chip);
+  });
+}
 
 // ===== ドロップス・シンボルえらび（シンボルアプリと同じSupabaseを共有）=====
 // 公開OKのPublishableキー（読み取り専用）。日常利用はオフラインのまま、ここを開いた時だけ通信します。
 const DROPS_URL = "https://hortngwcijhjagwmcoxo.supabase.co";
 const DROPS_KEY = "sb_publishable_qy1V664U_HDLq_YEXkwo7w_fF6GpRBI";
 let DROPS = null;        // 読み込んだシンボル一覧（初回だけ取得してメモリ保持）
-let symbolTarget = "";   // どの「ないよう」に絵をつけるか（CONTENTS.text）
+let symbolTarget = "";   // どの「ないよう」に絵をつけるか（CONTENTS.text、または きょうだけの ないよう の文字）
+let symbolTargetOneOff = false; // true なら CONTENTS ではなく oneOffMeta に絵を付ける
 
 // SupabaseのAPIは1回最大1000件なので分割取得
 async function loadSymbols() {
@@ -1225,8 +1288,9 @@ async function loadSymbols() {
   return DROPS;
 }
 
-async function openSymbolPicker(contentText) {
+async function openSymbolPicker(contentText, opts) {
   symbolTarget = contentText;
+  symbolTargetOneOff = !!(opts && opts.oneOff);
   document.getElementById("symbolPickerTitle").textContent = `「${contentText}」の えを えらぶ`;
   document.getElementById("symbolSearch").value = "";
   const grid = document.getElementById("symbolGrid");
@@ -1263,10 +1327,16 @@ function closeSymbolPicker() {
 async function chooseSymbol(s) {
   try {
     const dataUrl = await imageUrlToDataUrl(s.url);
-    const c = CONTENTS.find(x => x.text === symbolTarget);
-    if (c) c.img = dataUrl;
-    saveAll();
-    renderSettingsContent();
+    if (symbolTargetOneOff) {
+      oneOffMeta[symbolTarget] = { ...(oneOffMeta[symbolTarget] || {}), img: dataUrl };
+      saveDay();
+      renderPickerList();
+    } else {
+      const c = CONTENTS.find(x => x.text === symbolTarget);
+      if (c) c.img = dataUrl;
+      saveAll();
+      renderSettingsContent();
+    }
     renderBuild();
     closeSymbolPicker();
   } catch (e) {
@@ -1288,7 +1358,12 @@ async function imageUrlToDataUrl(url) {
 }
 
 // 絵をはずす（元の文字だけに戻す）
-function clearSymbol(contentText) {
+function clearSymbol(contentText, opts) {
+  if (opts && opts.oneOff) {
+    const m = oneOffMeta[contentText];
+    if (m) { delete m.img; saveDay(); renderPickerList(); renderBuild(); }
+    return;
+  }
   const c = CONTENTS.find(x => x.text === contentText);
   if (c) { delete c.img; saveAll(); renderSettingsContent(); renderBuild(); }
 }
