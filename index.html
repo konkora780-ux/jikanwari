@@ -602,15 +602,16 @@
     <div class="settings-section">
       <div class="settings-label">ないよう（きょうかごと）</div>
       <div style="font-size:0.85rem;color:#948B7C;font-weight:700;margin-bottom:8px">
-        「みんな」は どの きょうかでも でます。<br>
-        きょうかを えらぶと、その きょうかを えらんだ ときだけ でる ないように なります。
+        なにも えらばなければ「みんな」＝ どの きょうかでも でます。<br>
+        きょうかを えらぶと、えらんだ きょうか（1つでも 2つ いじょうでも）だけ でる ないように なります。<br>
+        すでに ある ないようと おなじ なまえで ついかすると、うわがき（へんこう）できます。
       </div>
       <div class="settings-list" id="settingsContentList"></div>
+      <div class="toggle-list" id="contentSubjectToggles" style="padding:8px 0;gap:8px"></div>
       <div class="add-inline" style="flex-wrap:wrap">
-        <select id="contentSubjectSelect"></select>
         <input type="text" id="contentInput" placeholder="あたらしい ないよう">
         <input type="text" id="contentKanaInput" placeholder="ふりがな（かんじの とき）">
-        <button class="sub-btn" id="contentSaveBtn">ついか</button>
+        <button class="sub-btn" id="contentSaveBtn">ついか・へんこう</button>
       </div>
     </div>
 
@@ -701,6 +702,16 @@ let CONTENTS = [
   { text: "給食準備",   kana: "きゅうしょくじゅんび" },
   { text: "自由時間",   kana: "じゆうじかん" },
 ];
+
+// 内容の教科(所属)を、古い形式(subject: 1つの文字列)から
+// 新しい形式(subjects: 配列。2つ以上の教科をえらべるように)へ変換します。
+// 一度も保存していない/新しい形式のものはそのまま。
+function migrateContentSubjects() {
+  CONTENTS.forEach(c => {
+    if (!c.subjects) c.subjects = c.subject ? [c.subject] : [];
+    delete c.subject;
+  });
+}
 
 // 内容をルビ(ふりがな)付きHTMLにする。ふりがなが無いものはそのまま表示
 function contentRubyHtml(text) {
@@ -861,6 +872,7 @@ function purgeOldFiscalYears() {
 }
 
 loadCommon();
+migrateContentSubjects(); // 初回起動(保存データなし)の既定リストにも subjects を用意しておく
 purgeOldFiscalYears();
 // 開いたときは常に本日を表示します(前回の日付ではなく)
 dayInfo.date = new Date().toISOString().slice(0, 10);
@@ -1121,10 +1133,10 @@ function renderBuild() {
 // ===== 内容えらびモーダル（複数選択＋その場でリスト追加）=====
 let pickerTarget = -1; // どの時間の内容を選んでいるか
 
-// その教科で出す内容の候補（「みんな(共通)」＋その教科のもの）を返す。
-// subject が空(未設定)のものは「みんな」あつかい＝どの教科でも出します。
+// その教科で出す内容の候補（「みんな(共通)」＋その教科をふくむもの）を返す。
+// subjects が空(未設定)のものは「みんな」あつかい＝どの教科でも出します。
 function contentsForSubject(subject) {
-  return CONTENTS.filter(c => !c.subject || c.subject === subject);
+  return CONTENTS.filter(c => !c.subjects || c.subjects.length === 0 || c.subjects.includes(subject));
 }
 
 function openPicker(index) {
@@ -1445,7 +1457,7 @@ document.getElementById("openSettingsBtn").addEventListener("click", () => {
 });
 
 function renderSettings() {
-  renderContentSubjectSelect();
+  renderContentSubjectToggles();
   renderSettingsContent();
   renderSettingsTeacher();
   renderGeminiKey();
@@ -1473,24 +1485,31 @@ document.getElementById("geminiKeyClearBtn").addEventListener("click", () => {
   renderGeminiKey();
 });
 
-// 「ないよう」を追加するときに選ぶ教科の一覧を作る。先頭は「みんな(共通)」。
-function renderContentSubjectSelect() {
-  const sel = document.getElementById("contentSubjectSelect");
-  const cur = sel.value; // 選択中を覚えておく
-  sel.innerHTML = "";
-  const opt0 = document.createElement("option");
-  opt0.value = ""; opt0.textContent = "みんな";
-  sel.appendChild(opt0);
+// 「ないよう」を追加/へんこうするときに選ぶ教科（タップで on/off・いくつでも選べる）。
+// 選択中の教科は contentFormSubjects に持つ（「みんな」＝空配列）。
+let contentFormSubjects = [];
+
+function renderContentSubjectToggles() {
+  const list = document.getElementById("contentSubjectToggles");
+  list.innerHTML = "";
+  // 使わなくなった教科を選んだままにしないよう、いま有効な教科だけに絞る
+  contentFormSubjects = contentFormSubjects.filter(name => SUBJECTS.some(s => s.active && s.name === name));
   SUBJECTS.filter(s => s.active).forEach(s => {
-    const o = document.createElement("option");
-    o.value = s.name; o.textContent = s.name;
-    sel.appendChild(o);
+    const btn = document.createElement("button");
+    btn.className = "toggle-btn t-toggle" + (contentFormSubjects.includes(s.name) ? " on" : "");
+    btn.textContent = s.name;
+    btn.addEventListener("click", () => {
+      const idx = contentFormSubjects.indexOf(s.name);
+      if (idx >= 0) contentFormSubjects.splice(idx, 1);
+      else contentFormSubjects.push(s.name);
+      renderContentSubjectToggles();
+    });
+    list.appendChild(btn);
   });
-  // 前に選んでいた教科が残っていれば、それを選び直す
-  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
 }
 
 // 内容の一覧＋削除（「みんな」→各教科 の順に、見出しをつけて分けて表示）
+// 2つ以上の教科を選んだ内容は、あてはまる教科の見出しすべてに出ます（重複表示＝どこで使えるか分かるように）。
 function renderSettingsContent() {
   const list = document.getElementById("settingsContentList");
   list.innerHTML = "";
@@ -1499,12 +1518,12 @@ function renderSettingsContent() {
     .concat(SUBJECTS.filter(s => s.active).map(s => ({ key: s.name, label: s.name })));
   // 使っていない教科に付いた内容も、消せるように末尾のグループとして出す
   const shownKeys = groups.map(g => g.key);
-  [...new Set(CONTENTS.map(c => c.subject).filter(s => s && !shownKeys.includes(s)))]
+  [...new Set(CONTENTS.flatMap(c => c.subjects || []).filter(s => !shownKeys.includes(s)))]
     .forEach(s => groups.push({ key: s, label: s + "（いまは つかっていない）" }));
 
   let any = false;
   groups.forEach(g => {
-    const items = CONTENTS.filter(c => (c.subject || "") === g.key);
+    const items = CONTENTS.filter(c => g.key === "" ? (!c.subjects || c.subjects.length === 0) : c.subjects.includes(g.key));
     if (items.length === 0) return;
     any = true;
     const head = document.createElement("div");
@@ -1521,6 +1540,19 @@ function renderSettingsContent() {
       }
       const label = document.createElement("span");
       label.innerHTML = contentRubyHtml(c.text);
+      if (c.subjects && c.subjects.length > 1) {
+        label.innerHTML += `<span style="font-weight:700;color:#948B7C;font-size:0.8em">（${c.subjects.join("・")}）</span>`;
+      }
+      // タップで、このないようを「ついか・へんこう」欄に呼び出して編集できるように
+      label.style.cursor = "pointer";
+      label.title = "タップして きょうかを へんこう";
+      label.addEventListener("click", () => {
+        document.getElementById("contentInput").value = c.text;
+        document.getElementById("contentKanaInput").value = c.kana || "";
+        contentFormSubjects = [...(c.subjects || [])];
+        renderContentSubjectToggles();
+        document.getElementById("contentInput").focus();
+      });
       // 絵をえらぶ／かえる
       const symBtn = document.createElement("button");
       symBtn.className = "sym-btn";
@@ -1557,22 +1589,24 @@ function renderSettingsContent() {
   }
 }
 
-// 内容の追加（選んだ教科に属する内容として足す。「みんな」なら subject は空）
+// 内容の追加・へんこう（選んだ教科(いくつでも)に属する内容として足す。「みんな」なら subjects は空配列）
 document.getElementById("contentSaveBtn").addEventListener("click", () => {
   const v = document.getElementById("contentInput").value.trim();
   const k = document.getElementById("contentKanaInput").value.trim();
-  const subject = document.getElementById("contentSubjectSelect").value;
+  const subjects = [...contentFormSubjects];
   if (!v) return;
   const existing = CONTENTS.find(x => x.text === v);
   if (existing) {
     // 同じ名前が既にあれば、教科(所属)とふりがなを選んだ内容に更新します
-    existing.subject = subject;
+    existing.subjects = subjects;
     if (k) existing.kana = k;
   } else {
-    CONTENTS.push({ text: v, kana: k, subject });
+    CONTENTS.push({ text: v, kana: k, subjects });
   }
   document.getElementById("contentInput").value = "";
   document.getElementById("contentKanaInput").value = "";
+  contentFormSubjects = [];
+  renderContentSubjectToggles();
   renderSettingsContent();
   saveAll();     // 所属変更を時間割の表示にも反映するため saveAll + renderBuild
   renderBuild();
