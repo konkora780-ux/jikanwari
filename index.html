@@ -1264,28 +1264,20 @@ function renderPickerOneOffMetaList() {
   });
 }
 
-// ===== ドロップス・シンボルえらび（シンボルアプリと同じSupabaseを共有）=====
-// 公開OKのPublishableキー（読み取り専用）。日常利用はオフラインのまま、ここを開いた時だけ通信します。
-const DROPS_URL = "https://hortngwcijhjagwmcoxo.supabase.co";
-const DROPS_KEY = "sb_publishable_qy1V664U_HDLq_YEXkwo7w_fF6GpRBI";
+// ===== ドロップス・シンボルえらび（シンボルアプリの公開ファイルを共有）=====
+// symbol リポジトリの symbols.json と symbols/<code>.png を読む。日常利用はオフラインのまま、ここを開いた時だけ通信します。
+const DROPS_BASE = "https://konkora780-ux.github.io/symbol/";
 let DROPS = null;        // 読み込んだシンボル一覧（初回だけ取得してメモリ保持）
 let symbolTarget = "";   // どの「ないよう」に絵をつけるか（CONTENTS.text、または きょうだけの ないよう の文字）
 let symbolTargetOneOff = false; // true なら CONTENTS ではなく oneOffMeta に絵を付ける
 
-// SupabaseのAPIは1回最大1000件なので分割取得
+// symbols.json の1行 = [code, word, category, reading, synonyms]
 async function loadSymbols() {
   if (DROPS) return DROPS;
-  const headers = { apikey: DROPS_KEY, Authorization: "Bearer " + DROPS_KEY };
-  const page = 1000; let off = 0; const all = [];
-  while (true) {
-    const res = await fetch(`${DROPS_URL}/rest/v1/symbols?select=code,word,reading,url&order=code&limit=${page}&offset=${off}`, { headers });
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    const chunk = await res.json();
-    all.push(...chunk);
-    if (chunk.length < page) break;
-    off += page;
-  }
-  DROPS = all;
+  const res = await fetch(DROPS_BASE + "symbols.json");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  const rows = await res.json();
+  DROPS = rows.map(([code, word, , reading]) => ({ code, word, reading, url: `${DROPS_BASE}symbols/${code}.png` }));
   return DROPS;
 }
 
