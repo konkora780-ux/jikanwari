@@ -769,7 +769,15 @@ const WEEKDAYS = [
   { kanji: "金曜日", kana: "きんようび" },
   { kanji: "土曜日", kana: "どようび" },
 ];
-let dayInfo = { date: new Date().toISOString().slice(0, 10), weather: "" };
+// 「きょう」の日付(例: "2026-10-14")。iPadの時計(日本時間)で数え、朝7時に日付が切り替わります。
+// 0時〜6時59分は前の日の時間割を開きます。
+const DAY_START_HOUR = 7;
+function todayStr() {
+  const d = new Date();
+  if (d.getHours() < DAY_START_HOUR) d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+let dayInfo = { date: todayStr(), weather: "" };
 
 // ===== ふりかえりの評価語（固定リスト）=====
 // label は選ぶときの表示、end は文末表現。「そうじ」＋「がんばった(→をがんばりました)」で
@@ -879,11 +887,11 @@ function fiscalYearStart(dateStr) {
   return (m >= 4) ? y : y - 1;
 }
 function purgeOldFiscalYears() {
-  const today = new Date();
-  const tm = today.getMonth() + 1;
+  const today = todayStr();
+  const tm = Number(today.slice(5, 7));
   // 5月1日以降でなければ何もしない(4月は猶予)
   if (tm < 5) return;
-  const currentFY = fiscalYearStart(today.toISOString().slice(0, 10));
+  const currentFY = fiscalYearStart(today);
   // 今年度と昨年度は残す。昨年度の開始(前年4月1日)より前の日付を消す。
   // 例: 2026年5月に開くと 2025-04-01 より前(=2025年3月末まで)が消えます。
   const keepFrom = `${currentFY - 1}-04-01`;
@@ -904,7 +912,7 @@ loadCommon();
 migrateContentSubjects(); // 初回起動(保存データなし)の既定リストにも subjects を用意しておく
 purgeOldFiscalYears();
 // 開いたときは常に本日を表示します(前回の日付ではなく)
-dayInfo.date = new Date().toISOString().slice(0, 10);
+dayInfo.date = todayStr();
 loadDay(dayInfo.date);
 
 function subjectOf(name) { return SUBJECTS.find(s => s.name === name); }
@@ -961,7 +969,7 @@ function renderCalendar() {
   const first = new Date(calYear, calMonth, 1);
   const startDay = first.getDay();           // 月初の曜日(0=日)
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const today = todayStr();
 
   // 月初まで空セルで埋める
   for (let i = 0; i < startDay; i++) {
@@ -976,7 +984,7 @@ function renderCalendar() {
     const cell = document.createElement("button");
     cell.className = "cal-cell"
       + (dow === 0 ? " sun" : dow === 6 ? " sat" : "")
-      + (dateStr === todayStr ? " today" : "")
+      + (dateStr === today ? " today" : "")
       + (dateStr === dayInfo.date ? " selected" : "");
     cell.textContent = day;
     cell.addEventListener("click", () => {
@@ -997,7 +1005,7 @@ document.getElementById("calNext").addEventListener("click", () => {
   renderCalendar();
 });
 document.getElementById("calToday").addEventListener("click", () => {
-  applyDate(new Date().toISOString().slice(0, 10));
+  applyDate(todayStr());
   closeModals();
 });
 
