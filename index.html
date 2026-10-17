@@ -813,6 +813,17 @@ const DAY_KEY_PREFIX = "jikanwari-day-"; // 日付ごとのデータ (例: jikan
 
 function dayKey(date) { return DAY_KEY_PREFIX + date; }
 
+// 保存容量がいっぱいで保存できなかったときだけ、1回だけ知らせます。
+// 何も言わずに失敗すると、画面では入っているのに次に開くと消えている、という状態になるためです。
+// (プレビュー等でlocalStorage自体が使えない環境では、これまでどおり何もしません)
+let quotaWarned = false;
+function warnIfQuota(e) {
+  const isQuota = e && (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED" || e.code === 22);
+  if (!isQuota || quotaWarned) return;
+  quotaWarned = true;
+  alert("ほぞん できませんでした。iPadの ほぞんばしょが いっぱいです。\nせってい で つかっていない え や せんせいの しゃしんを けしてください。");
+}
+
 // 共通データ(内容・先生・教科の表示状態・最後の日付)を保存
 function saveCommon() {
   try {
@@ -820,14 +831,14 @@ function saveCommon() {
     const subjActive = {};
     SUBJECTS.forEach(s => { subjActive[s.name] = s.active; });
     localStorage.setItem(SAVE_KEY, JSON.stringify({ CONTENTS, TEACHERS, subjActive, lastDate: dayInfo.date }));
-  } catch (e) { /* 保存できない環境(プレビュー等)では何もしない */ }
+  } catch (e) { warnIfQuota(e); }
 }
 // その日の時間割・天気・ふりかえり・単発内容のふりがな/えを保存
 function saveDay() {
   pruneOneOffMeta();
   try {
     localStorage.setItem(dayKey(dayInfo.date), JSON.stringify({ periods, weather: dayInfo.weather, reflections, oneOffMeta }));
-  } catch (e) {}
+  } catch (e) { warnIfQuota(e); }
 }
 // もう どの時間にも使われていない「きょうだけの ないよう」のふりがな/えは消しておく
 function pruneOneOffMeta() {
@@ -1524,7 +1535,8 @@ function analyzeKondate(base64) {
 function cleanKondateLines(text) {
   return String(text || "")
     .split(/[\n／/・、]/)
-    .map(s => s.replace(/^[\s　]*[-*●○◆■\d]+[.．)）:：]?[\s　]*/, "").trim())
+    // 数字は「1.」「１）」「1 」のように区切りが続くときだけ番号とみなします(「3色丼」の3は残す)
+    .map(s => s.replace(/^[\s　]*(?:[-*●○◆■]+|[0-9０-９]+[.．)）:：]|[0-9０-９]+(?=[\s　]))[\s　]*/, "").trim())
     .filter(s => s.length > 0);
 }
 
@@ -1887,8 +1899,10 @@ function renderReflection() {
 
 function buildSentence() {
   const box = document.getElementById("reflectSentence");
+  // 時間割から外した内容は、プルダウンでは空欄になるため、文にも出さないようにそろえます
+  const contents = todaysContents();
   const parts = reflections
-    .filter(r => r.content && r.evalKey)
+    .filter(r => r.content && r.evalKey && contents.includes(r.content))
     .map(r => {
       const ev = EVALS.find(e => e.key === r.evalKey);
       if (!ev) return ""; // きもちが削除済みなら文にしない
@@ -1955,6 +1969,27 @@ document.getElementById("backBtn").addEventListener("click", () => {
   document.getElementById("screen-build").classList.add("active");
   renderBuild();
 });
+
+// ===== 開いたまま日付がかわったとき =====
+// ホーム画面のアプリは、とじたつもりでも裏で開いたままのことが多く、
+// 翌朝ひらくと前の日の時間割が出てしまいます。画面に戻ったとき・1分ごとに「きょう」を確かめ、
+// かわっていたら新しい日に切り替えます。カレンダーで別の日を選んでいるときは切り替えません。
+let lastToday = todayStr();
+function checkDayChange() {
+  const now = todayStr();
+  if (now === lastToday) return;
+  const wasToday = (dayInfo.date === lastToday);
+  lastToday = now;
+  if (!wasToday) return;
+  applyDate(now);
+  if (document.getElementById("screen-view").classList.contains("active")) {
+    nowIndex = -1;
+    renderView();
+  }
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkDayChange(); });
+window.addEventListener("pageshow", checkDayChange);
+setInterval(checkDayChange, 60 * 1000);
 
 renderBuild();
 </script>
