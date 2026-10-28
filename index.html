@@ -30,6 +30,9 @@
   .screen.active { display: flex; }
   h1 { font-weight: 900; font-size: clamp(1.2rem, 3vw, 1.8rem); letter-spacing: 0.06em; text-align: center; margin-bottom: 1.5vh; }
   ruby rt { font-weight: 700; }
+  /* 更新日の表示: 先生用画面の右下に、うすく小さく出します（子どもの画面には出しません） */
+  #screen-build { position: relative; }
+  .app-version { position: absolute; right: 1vw; bottom: 0.5vh; font-size: 0.7rem; color: var(--ink); opacity: 0.35; pointer-events: none; }
 
   /* ===== 共通ボタン ===== */
   .big-btn {
@@ -388,7 +391,7 @@
     @page { size: A4 portrait; margin: 10mm; }
     body { background: white; overflow: visible; }
     .screen { height: auto; padding: 0; }
-    .btn-row, #backBtn, #printBtn, .voice-row { display: none !important; }
+    .btn-row, #backBtn, #printBtn, .voice-row, .app-version { display: none !important; }
     #screen-view { display: flex !important; }
     #screen-build { display: none !important; }
     h1 { font-size: 16pt !important; margin-bottom: 6pt; }
@@ -501,6 +504,8 @@
     <button class="sub-btn" id="openSettingsBtn">⚙️ せってい</button>
     <button class="big-btn" id="showBtn">じかんわりを みせる</button>
   </div>
+  <!-- 更新日: アプリを直したら、ここの日付を書きかえてください（最新版が反映されたかの目印） -->
+  <div class="app-version">更新日 2026-10-29</div>
 </section>
 
 <!-- 画面2: みる（生徒向け表示） -->
