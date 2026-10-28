@@ -1498,34 +1498,18 @@ function analyzeKondate(base64) {
   if (!key) { setKondateStatus("APIキーが まだです。⚙️せってい で はりつけてください。"); return; }
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${KONDATE_CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
   const t = kondateDayLabel(dayInfo.date);
-  // 日付の文字はセルの縦の真ん中に書かれているため、AIは文字の近くの行だけを
-  // その日と思いこみやすいです。そこで「1日分の枠は上下の横線まで」と教えたうえで、
-  // 写っている日をすべて日付ごとに書かせ、アプリ側で編集中の日だけを取り出します。
-  // (目当ての日だけを聞くより、となりの日との境目を意識して読むため、取りこぼしが減ります)
+  // AIに「どの行が何日か」を決めさせると、日付の文字(枠のたての真ん中)から遠い
+  // いちばん上の行を前の日と思いこみやすいです。そこでAIには「料理名の欄を上から全部」と
+  // 「日付の文字の高さ」だけを答えさせ、何日の料理かはアプリが決めます(groupKondateRows)。
   const prompt = [
-    "これは学校給食の献立表の写真です。",
-    "献立表のつくり:",
-    "・左はしの列が日付の欄で、「27(火)」のように書かれています",
-    "・1日分の日付の欄は、たてに数行分をまとめた大きな枠(結合されたセル)です。日付の文字は枠のたての真ん中あたりにありますが、その日の範囲は、日付の文字の位置ではなく、枠の上の横線から下の横線までです",
-    "・その範囲の中にある料理の行は、日付の文字より上の行も下の行も、すべてその日の料理です。とくに枠のいちばん上の行(「ごはん／牛乳」「しょくパン／牛乳」など主食と飲み物の行が多い)を見落とさないでください",
-    "・料理名の欄の右にある材料の欄(肉や野菜の名前)は料理ではありません",
-    "",
-    "やること:",
-    "写真に写っている日を上から順に、日付ごとに、その日の料理名を1つも省略せずに書いてください。",
-    "まず日付の欄の上下の横線を見て1日分の範囲を決め、そのあと範囲の中の料理の行を上から順に読んでください。",
-    "写真の上や下のはしで、日付の枠がとちゅうで切れている日は書かないでください。",
-    "ピンク色の枠で囲まれた部分があるときは、その中の料理名も【ピンク】として書いてください。",
-    "",
-    "書き方(この形だけで書く):",
-    "【27】",
-    "料理名",
-    "料理名",
-    "【28】",
-    "料理名",
-    "・【 】の中は日付の数字だけ",
-    "・料理は1行に1つずつ。「ごはん／牛乳」のように「／」「・」「、」で並んでいるときは、料理ごとに別々の行にする",
-    "・牛乳やお茶などの飲み物も1つの料理として書く",
-    "・番号、記号、材料名、エネルギー量、説明文は書かない"
+    "これは学校給食の献立表の写真です。左はしの列が日付の欄(「27(火)」など)、そのとなりが料理名の欄、さらに右が材料の欄です。",
+    "写真を見て、次のJSONだけを答えてください。",
+    '{"dates":[{"label":"27(火)","y":350,"top":80,"bottom":640}],"rows":[{"text":"せわりコッペパン／牛乳","y":140}],"pink":["料理名"]}',
+    "・dates: 写真に写っている日付の文字すべて。label は書いてあるとおり、y は日付の文字のたての中心、top と bottom はその日付の枠(何行分かをまとめた大きな枠)の上の線と下の線の高さ",
+    "・rows: 料理名の欄の行を、写真のいちばん上からいちばん下まで、1行も飛ばさずにすべて。日付に関係なく、上から順に書く。text は行に書いてある文字をそのまま(「しょくパン／牛乳」のような行も1行として)、y はその行のたての中心",
+    "・高さ(y, top, bottom)は、写真のいちばん上を0、いちばん下を1000とした数",
+    "・材料の欄(料理名の右にある肉や野菜の名前)、エネルギー量、説明文は rows に入れない",
+    "・ピンク色の枠で囲まれた部分があるときは、その中の料理名を pink に1つずつ入れる。なければ空にする"
   ].join("\n");
 
   fetch(url, {
@@ -1535,7 +1519,8 @@ function analyzeKondate(base64) {
       contents: [{ parts: [
         { text: prompt },
         { inline_data: { mime_type: "image/jpeg", data: base64 } }
-      ]}]
+      ]}],
+      generationConfig: { responseMimeType: "application/json" }
     })
   })
   .then(res => res.json().then(json => ({ ok: res.ok, json })))
@@ -1547,7 +1532,9 @@ function analyzeKondate(base64) {
     }
     const text = ((((json.candidates || [])[0] || {}).content || {}).parts || [])
       .map(p => p.text || "").join("");
-    const lines = cleanKondateLines(pickKondateDay(text, t.day));
+    let data = null;
+    try { data = JSON.parse(text.replace(/^[^{]*/, "").replace(/[^}]*$/, "")); } catch (e) { data = null; }
+    const lines = data ? cleanKondateLines(groupKondateRows(data, t.day).join("\n")) : [];
     if (lines.length === 0) {
       setKondateStatus(`${kondateDayLabel(dayInfo.date).text}の りょうりめいが 見つかりませんでした。その ひが うつるように さつえいしてみてください。`);
       return;
@@ -1558,25 +1545,56 @@ function analyzeKondate(base64) {
   .catch(() => setKondateStatus("つうしんに しっぱいしました。ネットワークを たしかめてください。"));
 }
 
-// AIの答え(【27】料理…【28】料理…)から、編集中の日の部分だけを取り出します。
-// その日が無ければピンク枠の部分を使います。【 】が1つも無い答えは、そのまま全部使います。
-function pickKondateDay(text, day) {
-  const sections = {};
-  let cur = null, found = false;
-  String(text || "").split("\n").forEach(line => {
-    const m = line.match(/^[\s　]*[【\[]([^】\]]*)[】\]]/);
-    if (m) {
-      found = true;
-      const label = m[1].replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
-      const num = label.match(/[0-9]+/);
-      cur = label.includes("ピンク") ? "pink" : (num ? String(Number(num[0])) : null);
-      if (cur && !sections[cur]) sections[cur] = [];
-      return;
-    }
-    if (cur) sections[cur].push(line);
+// AIの答え(料理名の行と日付の高さ)から、編集中の日の料理だけを取り出します。
+// この献立表は、どの日もいちばん上が「ごはん／牛乳」のような主食と牛乳の行です。
+// そこで牛乳の行を1日分の始まりとして区切り、日付の文字がある区切りをその日とします。
+// (枠の線の高さより、牛乳の行の方がAIが確実に読めるため、こちらを先に使います)
+// 牛乳の無い日などで区切れないときは、AIが答えた日付の枠の上下の高さで選びます。
+// その日が写っていなければピンク枠の料理を使います。
+function groupKondateRows(data, day) {
+  const num = v => Number(String(v).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
+  const rows = (data.rows || [])
+    .filter(r => r && String(r.text || "").trim())
+    .map(r => ({ text: String(r.text).trim(), y: num(r.y) }))
+    .sort((a, b) => a.y - b.y);
+  const dates = (data.dates || []).map(d => {
+    const m = String((d && d.label) || "").replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).match(/[0-9]+/);
+    return { day: m ? Number(m[0]) : NaN, y: num(d.y), top: num(d.top), bottom: num(d.bottom) };
   });
-  if (!found) return text;
-  return (sections[String(day)] || sections.pink || []).join("\n");
+  const pink = (data.pink || []).map(String);
+  const target = dates.find(d => d.day === day);
+  if (!target) return pink;
+
+  // 牛乳の行で区切る
+  const isMilk = text => /牛乳|ぎゅうにゅう|ミルク/.test(text);
+  const starts = rows.map((r, i) => isMilk(r.text) ? i : -1).filter(i => i >= 0);
+  if (starts.length > 0) {
+    const bounds = [0, ...starts.filter(i => i > 0), rows.length];
+    for (let k = 0; k < bounds.length - 1; k++) {
+      const from = k === 0 ? -Infinity : rows[bounds[k]].y;
+      const to = bounds[k + 1] < rows.length ? rows[bounds[k + 1]].y : Infinity;
+      if (target.y < from || target.y >= to) continue;
+      // 同じ区切りに別の日付も入っていたら、牛乳の無い日がまじっているので使いません
+      const others = dates.filter(d => d !== target && d.y >= from && d.y < to);
+      if (others.length === 0) {
+        let block = rows.slice(bounds[k], bounds[k + 1]);
+        // 写真のいちばん下の日は、次の日の牛乳の行が写っておらず区切れないことがあります。
+        // 日付の文字は枠のたての真ん中にあるので、1行目から日付までと同じ長さだけ下までを、その日とします。
+        if (k > 0 && bounds[k + 1] === rows.length && block.length > 1) {
+          const gap = (block[block.length - 1].y - block[0].y) / (block.length - 1);
+          const end = 2 * target.y - block[0].y + gap * 0.6;
+          block = block.filter(r => r.y <= end);
+        }
+        return block.map(r => r.text);
+      }
+      break;
+    }
+  }
+  // 日付の枠の上下で選ぶ
+  if (target.top < target.bottom) {
+    return rows.filter(r => r.y >= target.top && r.y <= target.bottom).map(r => r.text);
+  }
+  return [];
 }
 
 // 1品＝1行にそろえる。改行に加え、「／」「/」「・」「、」で区切られた
