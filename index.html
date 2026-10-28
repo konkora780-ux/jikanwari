@@ -1593,7 +1593,12 @@ function groupKondateRows(data, day) {
   // 主食と牛乳の行で区切る
   // AIが牛乳を読み落としても区切れるよう、「〜ごはん」「〜パン」だけの行も1日の始まりとみなします
   const isStart = text => /牛乳|ぎゅうにゅう|ミルク/.test(text) || /^[^／]{0,8}(ごはん|パン)$/.test(text);
-  const starts = rows.map((r, i) => isStart(r.text) ? i : -1).filter(i => i >= 0);
+  // めんの日などは「やさいたっぷりたんめん」の次の行に牛乳だけが書かれています。
+  // 牛乳だけの行は、その1つ上の行(主食)から1日が始まるとみなします。
+  const isMilkOnly = text => /^[\s　]*(牛乳|ぎゅうにゅう|ミルク)[\s　]*$/.test(text);
+  const starts = [...new Set(rows.map((r, i) =>
+    !isStart(r.text) ? -1 : (isMilkOnly(r.text) && i > 0 ? i - 1 : i)
+  ).filter(i => i >= 0))].sort((a, b) => a - b);
   if (starts.length > 0) {
     const bounds = [0, ...starts.filter(i => i > 0), rows.length];
     for (let k = 0; k < bounds.length - 1; k++) {
