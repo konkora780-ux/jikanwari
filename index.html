@@ -557,7 +557,7 @@
     <h2>📷 こんだてを しゃしんから いれる</h2>
     <div class="settings-label" id="kondateStatus" style="margin-bottom:6px">しゃしんを えらんでください。</div>
     <div style="font-size:0.85rem;color:#948B7C;font-weight:700;margin-bottom:4px">
-      ピンクの わくの なかの りょうりめいを よみとります。<br>
+      <span id="kondateTargetDay">へんしゅうちゅうの ひ</span>の りょうりめいを よみとります。<br>
       1ぎょうに 1つずつ。まちがいは ここで なおせます。
     </div>
     <textarea id="kondateText" rows="6"
@@ -1440,6 +1440,7 @@ let kondateTarget = -1; // どの行に入れるか
 function openKondateFromPhoto(index) {
   kondateTarget = index;
   document.getElementById("kondateText").value = "";
+  document.getElementById("kondateTargetDay").textContent = kondateDayLabel(dayInfo.date).text;
   if (!getGeminiKey()) {
     setKondateStatus("APIキーが まだです。⚙️せってい で はりつけてください。");
     openModal("kondateModal");
@@ -1448,6 +1449,13 @@ function openKondateFromPhoto(index) {
   setKondateStatus("しゃしんを えらんでください。");
   openModal("kondateModal");
   document.getElementById("kondateFile").click();
+}
+
+// 編集中の日付("2026-10-27")を、献立表の書き方に合わせて「27」「火」に分けます
+function kondateDayLabel(date) {
+  const [y, m, d] = date.split("-").map(Number);
+  const wd = "日月火水木金土"[new Date(y, m - 1, d).getDay()];
+  return { day: d, wd, text: `${m}がつ${d}にち(${wd})` };
 }
 
 function setKondateStatus(msg) {
@@ -1466,11 +1474,12 @@ document.getElementById("kondateFile").addEventListener("change", (e) => {
   e.target.value = ""; // 同じ写真をもう一度選べるようにします
 });
 
-// 文字を読ませるため、先生の顔写真(200px)より大きい横1024pxに縮小します
+// 文字を読ませるため、先生の顔写真(200px)より大きい横1600pxに縮小します
+// (1か月分の献立表を丸ごと撮っても、日付の小さい文字が読めるようにするため)
 function resizeForOcr(file, callback) {
   const img = new Image();
   img.onload = () => {
-    const maxW = 1024;
+    const maxW = 1600;
     const scale = Math.min(1, maxW / img.width);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(img.width * scale);
@@ -1488,14 +1497,19 @@ function analyzeKondate(base64) {
   const key = getGeminiKey();
   if (!key) { setKondateStatus("APIキーが まだです。⚙️せってい で はりつけてください。"); return; }
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${KONDATE_CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
+  const t = kondateDayLabel(dayInfo.date);
   const prompt = [
     "これは学校給食の献立表の写真です。",
-    "ピンク色の枠で囲まれた部分の中にある料理名を、1つも省略せず、すべて抜き出してください。",
+    `日付の欄が「${t.day}(${t.wd})」(${t.day}日・${t.wd}曜日)になっている日の料理名を、1つも省略せず、すべて抜き出してください。`,
+    `・献立表は、日付の欄の右に、その日の料理が複数の行で並んでいる形です。次の日付の欄が始まるまでが「${t.day}日」の料理です`,
+    "・材料の欄(料理名の右側にある肉や野菜の名前)は書かない",
+    `・写真の中に「${t.day}日」が見つからず、ピンク色の枠があるときは、ピンク枠の中の料理名を抜き出す`,
+    `・「${t.day}日」もピンク枠も見つからないときは「なし」とだけ書く`,
     "・料理は1行に1つずつ書く",
     "・「ごはん／牛乳」のように「／」や「・」「、」で複数の料理が並んでいるときは、必ず料理ごとに改行して別々の行にする",
     "・牛乳やお茶などの飲み物も1つの料理として書く",
     "・番号、記号、材料名、エネルギー量、日付は書かない",
-    "・ピンク枠の外にあるものは無視する",
+    `・${t.day}日以外の日の料理は書かない`,
     "・料理名以外の説明文は一切書かない"
   ].join("\n");
 
@@ -1518,9 +1532,9 @@ function analyzeKondate(base64) {
     }
     const text = ((((json.candidates || [])[0] || {}).content || {}).parts || [])
       .map(p => p.text || "").join("");
-    const lines = cleanKondateLines(text);
+    const lines = cleanKondateLines(text).filter(s => s !== "なし");
     if (lines.length === 0) {
-      setKondateStatus("りょうりめいが 見つかりませんでした。もういちど さつえいしてみてください。");
+      setKondateStatus(`${kondateDayLabel(dayInfo.date).text}の りょうりめいが 見つかりませんでした。その ひが うつるように さつえいしてみてください。`);
       return;
     }
     document.getElementById("kondateText").value = lines.join("\n");
