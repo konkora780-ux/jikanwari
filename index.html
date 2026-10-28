@@ -1498,19 +1498,34 @@ function analyzeKondate(base64) {
   if (!key) { setKondateStatus("APIキーが まだです。⚙️せってい で はりつけてください。"); return; }
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${KONDATE_CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
   const t = kondateDayLabel(dayInfo.date);
+  // 日付の文字はセルの縦の真ん中に書かれているため、AIは文字の近くの行だけを
+  // その日と思いこみやすいです。そこで「1日分の枠は上下の横線まで」と教えたうえで、
+  // 写っている日をすべて日付ごとに書かせ、アプリ側で編集中の日だけを取り出します。
+  // (目当ての日だけを聞くより、となりの日との境目を意識して読むため、取りこぼしが減ります)
   const prompt = [
     "これは学校給食の献立表の写真です。",
-    `日付の欄が「${t.day}(${t.wd})」(${t.day}日・${t.wd}曜日)になっている日の料理名を、1つも省略せず、すべて抜き出してください。`,
-    `・献立表は、日付の欄の右に、その日の料理が複数の行で並んでいる形です。次の日付の欄が始まるまでが「${t.day}日」の料理です`,
-    "・材料の欄(料理名の右側にある肉や野菜の名前)は書かない",
-    `・写真の中に「${t.day}日」が見つからず、ピンク色の枠があるときは、ピンク枠の中の料理名を抜き出す`,
-    `・「${t.day}日」もピンク枠も見つからないときは「なし」とだけ書く`,
-    "・料理は1行に1つずつ書く",
-    "・「ごはん／牛乳」のように「／」や「・」「、」で複数の料理が並んでいるときは、必ず料理ごとに改行して別々の行にする",
+    "献立表のつくり:",
+    "・左はしの列が日付の欄で、「27(火)」のように書かれています",
+    "・1日分の日付の欄は、たてに数行分をまとめた大きな枠(結合されたセル)です。日付の文字は枠のたての真ん中あたりにありますが、その日の範囲は、日付の文字の位置ではなく、枠の上の横線から下の横線までです",
+    "・その範囲の中にある料理の行は、日付の文字より上の行も下の行も、すべてその日の料理です。とくに枠のいちばん上の行(「ごはん／牛乳」「しょくパン／牛乳」など主食と飲み物の行が多い)を見落とさないでください",
+    "・料理名の欄の右にある材料の欄(肉や野菜の名前)は料理ではありません",
+    "",
+    "やること:",
+    "写真に写っている日を上から順に、日付ごとに、その日の料理名を1つも省略せずに書いてください。",
+    "まず日付の欄の上下の横線を見て1日分の範囲を決め、そのあと範囲の中の料理の行を上から順に読んでください。",
+    "写真の上や下のはしで、日付の枠がとちゅうで切れている日は書かないでください。",
+    "ピンク色の枠で囲まれた部分があるときは、その中の料理名も【ピンク】として書いてください。",
+    "",
+    "書き方(この形だけで書く):",
+    "【27】",
+    "料理名",
+    "料理名",
+    "【28】",
+    "料理名",
+    "・【 】の中は日付の数字だけ",
+    "・料理は1行に1つずつ。「ごはん／牛乳」のように「／」「・」「、」で並んでいるときは、料理ごとに別々の行にする",
     "・牛乳やお茶などの飲み物も1つの料理として書く",
-    "・番号、記号、材料名、エネルギー量、日付は書かない",
-    `・${t.day}日以外の日の料理は書かない`,
-    "・料理名以外の説明文は一切書かない"
+    "・番号、記号、材料名、エネルギー量、説明文は書かない"
   ].join("\n");
 
   fetch(url, {
@@ -1532,7 +1547,7 @@ function analyzeKondate(base64) {
     }
     const text = ((((json.candidates || [])[0] || {}).content || {}).parts || [])
       .map(p => p.text || "").join("");
-    const lines = cleanKondateLines(text).filter(s => s !== "なし");
+    const lines = cleanKondateLines(pickKondateDay(text, t.day));
     if (lines.length === 0) {
       setKondateStatus(`${kondateDayLabel(dayInfo.date).text}の りょうりめいが 見つかりませんでした。その ひが うつるように さつえいしてみてください。`);
       return;
@@ -1541,6 +1556,27 @@ function analyzeKondate(base64) {
     setKondateStatus(`${lines.length}つ よみとりました。まちがいが あれば なおしてください。`);
   })
   .catch(() => setKondateStatus("つうしんに しっぱいしました。ネットワークを たしかめてください。"));
+}
+
+// AIの答え(【27】料理…【28】料理…)から、編集中の日の部分だけを取り出します。
+// その日が無ければピンク枠の部分を使います。【 】が1つも無い答えは、そのまま全部使います。
+function pickKondateDay(text, day) {
+  const sections = {};
+  let cur = null, found = false;
+  String(text || "").split("\n").forEach(line => {
+    const m = line.match(/^[\s　]*[【\[]([^】\]]*)[】\]]/);
+    if (m) {
+      found = true;
+      const label = m[1].replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+      const num = label.match(/[0-9]+/);
+      cur = label.includes("ピンク") ? "pink" : (num ? String(Number(num[0])) : null);
+      if (cur && !sections[cur]) sections[cur] = [];
+      return;
+    }
+    if (cur) sections[cur].push(line);
+  });
+  if (!found) return text;
+  return (sections[String(day)] || sections.pink || []).join("\n");
 }
 
 // 1品＝1行にそろえる。改行に加え、「／」「/」「・」「、」で区切られた
