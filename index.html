@@ -1506,7 +1506,7 @@ function analyzeKondate(base64) {
     "写真を見て、次のJSONだけを答えてください。",
     '{"dates":[{"label":"27(火)","y":350,"top":80,"bottom":640}],"rows":[{"text":"せわりコッペパン／牛乳","y":140}],"pink":["料理名"]}',
     "・dates: 写真に写っている日付の文字すべて。label は書いてあるとおり、y は日付の文字のたての中心、top と bottom はその日付の枠(何行分かをまとめた大きな枠)の上の線と下の線の高さ",
-    "・rows: 料理名の欄の行を、写真のいちばん上からいちばん下まで、1行も飛ばさずにすべて。日付に関係なく、上から順に書く。text は行に書いてある文字をそのまま(「しょくパン／牛乳」のような行も1行として)、y はその行のたての中心",
+    "・rows: 料理名の欄の行を、写真のいちばん上からいちばん下まで、1行も飛ばさずにすべて。日付に関係なく、上から順に書く。text は行に書いてある文字をそのまま。「ごはん　／　牛乳」「しょくパン　／　牛乳」のように1つの行に「／」で2つ並んでいるときは、分けずに、左の主食も右の牛乳も両方とも1つの text に書く(例: \"ごはん／牛乳\")。y はその行のたての中心",
     "・高さ(y, top, bottom)は、写真のいちばん上を0、いちばん下を1000とした数",
     "・材料の欄(料理名の右にある肉や野菜の名前)、エネルギー量、説明文は rows に入れない",
     "・ピンク色の枠で囲まれた部分があるときは、その中の料理名を pink に1つずつ入れる。なければ空にする"
@@ -1551,12 +1551,32 @@ function analyzeKondate(base64) {
 // (枠の線の高さより、牛乳の行の方がAIが確実に読めるため、こちらを先に使います)
 // 牛乳の無い日などで区切れないときは、AIが答えた日付の枠の上下の高さで選びます。
 // その日が写っていなければピンク枠の料理を使います。
+// AIが「ごはん」と「牛乳」を別々の行として、ほぼ同じ高さで返すことがあります。
+// そのままだと「ごはん」が牛乳の行より少し上になり、前の日に入ってしまうため、
+// 高さがほぼ同じ行(ふつうの行の間かくの4割より近い)は1つの行にまとめます。
+function mergeSameLine(acc, row, i, all) {
+  if (i === 0) {
+    const gaps = all.slice(1).map((r, k) => r.y - all[k].y).filter(g => g > 0).sort((a, b) => a - b);
+    mergeSameLine.near = gaps.length ? gaps[Math.floor(gaps.length * 0.75)] * 0.4 : 0;
+  }
+  const last = acc[acc.length - 1];
+  if (last && row.y - last.y < mergeSameLine.near) {
+    // 牛乳があとになるように並べます(「ごはん／牛乳」の順)
+    const parts = [last.text, row.text].sort((a, b) => /牛乳|ぎゅうにゅう/.test(a) - /牛乳|ぎゅうにゅう/.test(b));
+    acc[acc.length - 1] = { text: parts.join("／"), y: Math.min(last.y, row.y) };
+  } else {
+    acc.push(row);
+  }
+  return acc;
+}
+
 function groupKondateRows(data, day) {
   const num = v => Number(String(v).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
   const rows = (data.rows || [])
     .filter(r => r && String(r.text || "").trim())
     .map(r => ({ text: String(r.text).trim(), y: num(r.y) }))
-    .sort((a, b) => a.y - b.y);
+    .sort((a, b) => a.y - b.y)
+    .reduce(mergeSameLine, []);
   const dates = (data.dates || []).map(d => {
     const m = String((d && d.label) || "").replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).match(/[0-9]+/);
     return { day: m ? Number(m[0]) : NaN, y: num(d.y), top: num(d.top), bottom: num(d.bottom) };
@@ -1565,9 +1585,10 @@ function groupKondateRows(data, day) {
   const target = dates.find(d => d.day === day);
   if (!target) return pink;
 
-  // 牛乳の行で区切る
-  const isMilk = text => /牛乳|ぎゅうにゅう|ミルク/.test(text);
-  const starts = rows.map((r, i) => isMilk(r.text) ? i : -1).filter(i => i >= 0);
+  // 主食と牛乳の行で区切る
+  // AIが牛乳を読み落としても区切れるよう、「〜ごはん」「〜パン」だけの行も1日の始まりとみなします
+  const isStart = text => /牛乳|ぎゅうにゅう|ミルク/.test(text) || /^[^／]{0,8}(ごはん|パン)$/.test(text);
+  const starts = rows.map((r, i) => isStart(r.text) ? i : -1).filter(i => i >= 0);
   if (starts.length > 0) {
     const bounds = [0, ...starts.filter(i => i > 0), rows.length];
     for (let k = 0; k < bounds.length - 1; k++) {
