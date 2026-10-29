@@ -565,6 +565,8 @@
       <span id="kondateTargetDay">へんしゅうちゅうの ひ</span>の りょうりめいを よみとります。<br>
       1ぎょうに 1つずつ。まちがいは ここで なおせます。
     </div>
+    <img id="kondatePreview" alt="よみとった ぶぶん"
+      style="display:none;width:100%;max-height:30vh;object-fit:contain;border:3px solid #D8D2C4;border-radius:10px;margin-bottom:6px;background:#fff">
     <textarea id="kondateText" rows="6"
       style="width:100%;box-sizing:border-box;font-size:1rem;font-weight:700;line-height:1.7;
              padding:8px;border:3px solid #D8D2C4;border-radius:10px;font-family:inherit"></textarea>
@@ -1446,6 +1448,7 @@ function openKondateFromPhoto(index) {
   kondateTarget = index;
   document.getElementById("kondateText").value = "";
   document.getElementById("kondateTargetDay").textContent = kondateDayLabel(dayInfo.date).text;
+  showKondatePreview(null);
   if (!getGeminiKey()) {
     setKondateStatus("APIキーが まだです。⚙️せってい で はりつけてください。");
     openModal("kondateModal");
@@ -1479,12 +1482,12 @@ document.getElementById("kondateFile").addEventListener("change", (e) => {
   e.target.value = ""; // 同じ写真をもう一度選べるようにします
 });
 
-// 文字を読ませるため、先生の顔写真(200px)より大きい横1600pxに縮小します
-// (1か月分の献立表を丸ごと撮っても、日付の小さい文字が読めるようにするため)
+// 文字を読ませるため、横2400pxまでの大きさで持っておきます
+// (1日分を切り取ったあとも、料理名の文字が細かく読めるようにするため。AIに写真全体を送るときは1600pxに縮めます)
 function resizeForOcr(file, callback) {
   const img = new Image();
   img.onload = () => {
-    const maxW = 1600;
+    const maxW = 2400;
     const scale = Math.min(1, maxW / img.width);
     const canvas = document.createElement("canvas");
     canvas.width = Math.round(img.width * scale);
@@ -1518,24 +1521,30 @@ function analyzeKondate(canvas) {
     `・「${t.day}(${t.wd})」が写っていなければ {"found": false}`
   ].join("\n");
 
-  askGemini(key, locatePrompt, canvasToBase64(canvas), true)
+  showKondatePreview(null);
+  askGemini(key, locatePrompt, canvasToBase64(canvas, 1600), true)
     .then(text => {
       let loc = null;
       try { loc = JSON.parse(text.replace(/^[^{]*/, "").replace(/[^}]*$/, "")); } catch (e) { loc = null; }
       const b = loc && loc.found && Array.isArray(loc.box_2d) && loc.box_2d.length === 4 ? loc.box_2d.map(Number) : null;
       if (!b || b.some(v => !isFinite(v))) {
         // 日付が見つからない → ピンク枠の中を読む
-        return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas), false);
+        return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas, 1600), false);
       }
       const w = canvas.width, h = canvas.height;
       const box = { y0: b[0] / 1000 * h, x0: b[1] / 1000 * w, y1: b[2] / 1000 * h, x1: b[3] / 1000 * w };
       const band = findDayBand(canvas, box);
       // 上にも下にも線が見つからないときは、切り取れないのでピンク枠の中を読みます
       if (band.top === 0 && band.bottom === h) {
-        return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas), false);
+        return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas, 1600), false);
       }
       setKondateStatus("よみとり中… もうすこし まってください。");
-      return askGemini(key, kondateBandPrompt(), canvasToBase64(cropBand(canvas, band)), false);
+      const crop = cropBand(canvas, band);
+      showKondatePreview(crop);
+      // AIはときどき1品を読み落とすので、同じ帯を2回読ませて、多く読めた方を使います
+      const prompt = kondateBandPrompt(band.top === 0, band.bottom === h), img = canvasToBase64(crop);
+      return Promise.all([askGemini(key, prompt, img, false), askGemini(key, prompt, img, false)])
+        .then(([a, b]) => cleanKondateLines(b).length > cleanKondateLines(a).length ? b : a);
     })
     .then(text => {
       const lines = cleanKondateLines(text).filter(s => s !== "なし");
@@ -1566,8 +1575,24 @@ function askGemini(key, prompt, base64, json) {
     });
 }
 
-function canvasToBase64(canvas) {
-  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1]; // Geminiにはプレフィックス無しのbase64を渡します
+// maxW をわたすと、それより大きい写真は縮めてから送ります(送る量を減らすため)
+// 読み取り画面に、アプリが切り取った1日分の帯を出します(先生が読み取り結果と見くらべられるように)
+function showKondatePreview(crop) {
+  const el = document.getElementById("kondatePreview");
+  if (!crop) { el.style.display = "none"; el.removeAttribute("src"); return; }
+  el.src = "data:image/jpeg;base64," + canvasToBase64(crop, 900);
+  el.style.display = "block";
+}
+
+function canvasToBase64(canvas, maxW) {
+  let c = canvas;
+  if (maxW && canvas.width > maxW) {
+    c = document.createElement("canvas");
+    c.width = maxW;
+    c.height = Math.round(canvas.height * maxW / canvas.width);
+    c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
+  }
+  return c.toDataURL("image/jpeg", 0.85).split(",")[1]; // Geminiにはプレフィックス無しのbase64を渡します
 }
 
 // 料理名を読ませる指示(切り取った1日分の帯・ピンク枠で共通の書き方)
@@ -1578,12 +1603,18 @@ const KONDATE_RULES = [
   "・材料の欄(料理名の右にある肉や野菜の名前)、日付、番号、エネルギー量、説明文は書かない",
   "・料理名以外は一切書かない"
 ];
-function kondateBandPrompt() {
-  return [
+// 切り取った帯は、上下の白いよゆうの中に、1日分の枠の上の線と下の線が入っています。
+// 線の内側はすべてその日の料理なので、いちばん下の行も落とさないよう伝えます。
+// (写真のはしで切れている側だけ、半分切れた行を書かないように伝えます)
+function kondateBandPrompt(cutTop, cutBottom) {
+  const lines = [
     "これは学校給食の献立表から、1日分の段だけを切り取った写真です。",
     ...KONDATE_RULES,
-    "・写真のいちばん上やいちばん下のはしで、文字が半分以上切れている行は書かない"
-  ].join("\n");
+    "・この写真の料理名は、すべて同じ1日分の料理です。いちばん上の行から、いちばん下の線のすぐ上の行まで、最後の行も忘れずに書く"
+  ];
+  if (cutTop) lines.push("・写真のいちばん上のはしで、文字が半分以上切れている行は書かない");
+  if (cutBottom) lines.push("・写真のいちばん下のはしで、文字が半分以上切れている行は書かない");
+  return lines.join("\n");
 }
 function kondatePinkPrompt() {
   return [
@@ -1597,28 +1628,34 @@ function kondatePinkPrompt() {
 // 日付の文字の箱(ピクセル)から、日付の列の上と下の横線を探します。
 // 日付の列の、文字と同じ横はばの細長い帯だけを上下に調べます(料理名の欄の行の線を拾わないため)。
 // 線が見つからなければ写真のはしまでとします(その日が写真のはしで切れているとき)。
-function findDayBand(canvas, box) {
-  const w = canvas.width, h = canvas.height;
-  // AIの箱が少しずれても料理名の欄にはみ出さないよう、文字のまん中7割だけを使います
-  const bw = box.x1 - box.x0;
-  const x0 = Math.max(0, Math.round(box.x0 + bw * 0.15)), x1 = Math.min(w - 1, Math.round(box.x1 - bw * 0.15));
-  const sw = x1 - x0 + 1;
-  if (sw < 4) return { top: 0, bottom: h };
+// 写真の x0〜x1 の細長い帯について、「黒い点か」「表の横線か」を調べる道具を作ります
+function makeLineDetector(canvas, x0, x1) {
+  const h = canvas.height, sw = x1 - x0 + 1;
   const data = canvas.getContext("2d").getImageData(x0, 0, sw, h).data;
   const gray = new Uint8Array(sw * h), colored = new Uint8Array(sw * h);
-  const hist = new Uint32Array(256);
   for (let i = 0; i < sw * h; i++) {
     const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
     gray[i] = (r * 3 + g * 6 + b) / 10;
     // ピンク枠などの色のついた線は、表の線ではないので数えません
     colored[i] = Math.max(r, g, b) - Math.min(r, g, b) > 60 ? 1 : 0;
-    hist[gray[i]]++;
   }
-  // 紙の明るさ(明るい方から2割の位置)を基準に、それより十分暗いところを「黒」とします
-  let acc = 0, paper = 255;
-  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= sw * h * 0.2) { paper = v; break; } }
-  const th = paper * 0.65;
-  const dark = (x, y) => gray[y * sw + x] < th && !colored[y * sw + x];
+  // 写真は上と下で明るさがちがう(かげ・照明)ので、紙の明るさを高さごとに調べます。
+  // 各行のまん中の明るさを出し、その近くの行の中でいちばん明るい値を「その高さの紙の色」とします
+  // (線や文字の行は暗くなりますが、近くの白い行の値が使われます)
+  const rowMid = new Uint8Array(h), buf = new Uint8Array(sw);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < sw; x++) buf[x] = gray[y * sw + x];
+    buf.sort();
+    rowMid[y] = buf[sw >> 1];
+  }
+  const W = Math.max(3, Math.round(h / 50));
+  const th = new Float32Array(h);
+  for (let y = 0; y < h; y++) {
+    let m = 0;
+    for (let k = Math.max(0, y - W); k <= Math.min(h - 1, y + W); k++) if (rowMid[k] > m) m = rowMid[k];
+    th[y] = m * 0.7; // 紙の色より3割以上暗いところを「黒」とします
+  }
+  const dark = (x, y) => gray[y * sw + x] < th[y] && !colored[y * sw + x];
   const R = Math.max(1, Math.round(h / 1000)); // 写真の少しの傾きをゆるす高さ
   // 表の横線は、とぎれずに横へ長くつながった黒い線です。
   // 文字の横棒は字と字のすきまで切れるので、「つながった長さ」で見分けます。
@@ -1635,6 +1672,16 @@ function findDayBand(canvas, box) {
     }
     return best / sw >= 0.6;
   };
+  return { sw, h, R, dark, isLine };
+}
+
+function findDayBand(canvas, box) {
+  const w = canvas.width, h = canvas.height;
+  // AIの箱が少しずれても料理名の欄にはみ出さないよう、文字のまん中7割だけを使います
+  const bw = box.x1 - box.x0;
+  const x0 = Math.max(0, Math.round(box.x0 + bw * 0.15)), x1 = Math.min(w - 1, Math.round(box.x1 - bw * 0.15));
+  if (x1 - x0 < 3) return { top: 0, bottom: h };
+  const { sw, R, dark, isLine } = makeLineDetector(canvas, x0, x1);
   // AIの箱は上下に少しずれることがあるので、まず写真から日付の文字そのものの上下を確かめます。
   // 日付の文字のまわりは白いので、黒い点がある行が続くところが文字です。
   // 表のたての線(日付の列の左右のふち)がはばに入っても数えないよう、上から下まで黒い列は除きます
@@ -1672,11 +1719,22 @@ function findDayBand(canvas, box) {
 }
 
 // 線から線までの帯を、横はばいっぱいに切り取った新しいcanvasを返します
+// 線から線までの帯を、横はばいっぱいに切り取った新しいcanvasを返します。
+// 線そのものも入るよう少し広めに切り取り、上下に白いよゆうを足します。
+// (最後の行が写真のはしぎりぎりにあると、AIが「切れている行」と思って読まないことがあるため)
 function cropBand(canvas, band) {
+  const w = canvas.width, h = canvas.height;
+  const line = Math.max(3, Math.round(h * 0.006)); // 線の太さぶん
+  const top = Math.max(0, band.top - line), bottom = Math.min(h, band.bottom + line);
+  const bh = Math.max(1, bottom - top);
+  const margin = Math.max(30, Math.round(bh * 0.08));
   const out = document.createElement("canvas");
-  out.width = canvas.width;
-  out.height = Math.max(1, band.bottom - band.top);
-  out.getContext("2d").drawImage(canvas, 0, band.top, canvas.width, out.height, 0, 0, canvas.width, out.height);
+  out.width = w;
+  out.height = bh + margin * 2;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, 0, top, w, bh, 0, margin, w, bh);
   return out;
 }
 
