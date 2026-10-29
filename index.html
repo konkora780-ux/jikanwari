@@ -1535,7 +1535,7 @@ function analyzeKondate(canvas) {
         return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas), false);
       }
       setKondateStatus("よみとり中… もうすこし まってください。");
-      return askGemini(key, kondateBandPrompt(), canvasToBase64(cropBand(canvas, band)), false);
+      return askGemini(key, kondateBandPrompt(band.top === 0, band.bottom === h), canvasToBase64(cropBand(canvas, band)), false);
     })
     .then(text => {
       const lines = cleanKondateLines(text).filter(s => s !== "なし");
@@ -1578,12 +1578,18 @@ const KONDATE_RULES = [
   "・材料の欄(料理名の右にある肉や野菜の名前)、日付、番号、エネルギー量、説明文は書かない",
   "・料理名以外は一切書かない"
 ];
-function kondateBandPrompt() {
-  return [
+// 切り取った帯は、上下の白いよゆうの中に、1日分の枠の上の線と下の線が入っています。
+// 線の内側はすべてその日の料理なので、いちばん下の行も落とさないよう伝えます。
+// (写真のはしで切れている側だけ、半分切れた行を書かないように伝えます)
+function kondateBandPrompt(cutTop, cutBottom) {
+  const lines = [
     "これは学校給食の献立表から、1日分の段だけを切り取った写真です。",
     ...KONDATE_RULES,
-    "・写真のいちばん上やいちばん下のはしで、文字が半分以上切れている行は書かない"
-  ].join("\n");
+    "・この写真の料理名は、すべて同じ1日分の料理です。いちばん上の行から、いちばん下の線のすぐ上の行まで、最後の行も忘れずに書く"
+  ];
+  if (cutTop) lines.push("・写真のいちばん上のはしで、文字が半分以上切れている行は書かない");
+  if (cutBottom) lines.push("・写真のいちばん下のはしで、文字が半分以上切れている行は書かない");
+  return lines.join("\n");
 }
 function kondatePinkPrompt() {
   return [
@@ -1672,11 +1678,22 @@ function findDayBand(canvas, box) {
 }
 
 // 線から線までの帯を、横はばいっぱいに切り取った新しいcanvasを返します
+// 線から線までの帯を、横はばいっぱいに切り取った新しいcanvasを返します。
+// 線そのものも入るよう少し広めに切り取り、上下に白いよゆうを足します。
+// (最後の行が写真のはしぎりぎりにあると、AIが「切れている行」と思って読まないことがあるため)
 function cropBand(canvas, band) {
+  const w = canvas.width, h = canvas.height;
+  const line = Math.max(3, Math.round(h * 0.006)); // 線の太さぶん
+  const top = Math.max(0, band.top - line), bottom = Math.min(h, band.bottom + line);
+  const bh = Math.max(1, bottom - top);
+  const margin = Math.max(30, Math.round(bh * 0.08));
   const out = document.createElement("canvas");
-  out.width = canvas.width;
-  out.height = Math.max(1, band.bottom - band.top);
-  out.getContext("2d").drawImage(canvas, 0, band.top, canvas.width, out.height, 0, 0, canvas.width, out.height);
+  out.width = w;
+  out.height = bh + margin * 2;
+  const ctx = out.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, out.width, out.height);
+  ctx.drawImage(canvas, 0, top, w, bh, 0, margin, w, bh);
   return out;
 }
 
