@@ -1475,7 +1475,7 @@ document.getElementById("kondateFile").addEventListener("change", (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
   setKondateStatus("よみとり中… すこし まってください。");
-  resizeForOcr(file, (base64) => analyzeKondate(base64));
+  resizeForOcr(file, (canvas) => analyzeKondate(canvas));
   e.target.value = ""; // 同じ写真をもう一度選べるようにします
 });
 
@@ -1490,142 +1490,194 @@ function resizeForOcr(file, callback) {
     canvas.width = Math.round(img.width * scale);
     canvas.height = Math.round(img.height * scale);
     canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
     URL.revokeObjectURL(img.src);
-    callback(dataUrl.split(",")[1]); // Geminiにはプレフィックス無しのbase64を渡します
+    callback(canvas); // 日付の線を探して切り取るため、canvasのまま渡します
   };
   img.onerror = () => { setKondateStatus("しゃしんを ひらけませんでした。"); URL.revokeObjectURL(img.src); };
   img.src = URL.createObjectURL(file);
 }
 
-function analyzeKondate(base64) {
+// ===== 献立の読み取りの流れ =====
+// 献立表の日付の列は、1日分が1つの大きな枠になっていて、枠の中には横線がありません。
+// 横線があるのは「日と日の境目」だけなので、その線で1日分を切り取れます。
+//   ① AIに、編集中の日の日付の文字(例:「29(木)」)がどこにあるかだけを聞く
+//   ② アプリが、その文字の上と下にある横線を写真から探す(findDayBand)
+//   ③ 線から線までの帯だけを切り取って、AIに中の料理名を読ませる
+// 料理名(牛乳の行など)を目印にしないので、ごはん・パン・めんどの日でも同じやり方で区切れます。
+// 日付が写っていないときは、これまでどおりピンク枠の中を読みます。
+function analyzeKondate(canvas) {
   const key = getGeminiKey();
   if (!key) { setKondateStatus("APIキーが まだです。⚙️せってい で はりつけてください。"); return; }
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${KONDATE_CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
   const t = kondateDayLabel(dayInfo.date);
-  // AIに「どの行が何日か」を決めさせると、日付の文字(枠のたての真ん中)から遠い
-  // いちばん上の行を前の日と思いこみやすいです。そこでAIには「料理名の欄を上から全部」と
-  // 「日付の文字の高さ」だけを答えさせ、何日の料理かはアプリが決めます(groupKondateRows)。
-  const prompt = [
-    "これは学校給食の献立表の写真です。左はしの列が日付の欄(「27(火)」など)、そのとなりが料理名の欄、さらに右が材料の欄です。",
-    "写真を見て、次のJSONだけを答えてください。",
-    '{"dates":[{"label":"27(火)","y":350,"top":80,"bottom":640}],"rows":[{"text":"せわりコッペパン／牛乳","y":140}],"pink":["料理名"]}',
-    "・dates: 写真に写っている日付の文字すべて。label は書いてあるとおり、y は日付の文字のたての中心、top と bottom はその日付の枠(何行分かをまとめた大きな枠)の上の線と下の線の高さ",
-    "・rows: 料理名の欄の行を、写真のいちばん上からいちばん下まで、1行も飛ばさずにすべて。日付に関係なく、上から順に書く。text は行に書いてある文字をそのまま。「ごはん　／　牛乳」「しょくパン　／　牛乳」のように1つの行に「／」で2つ並んでいるときは、分けずに、左の主食も右の牛乳も両方とも1つの text に書く(例: \"ごはん／牛乳\")。y はその行のたての中心",
-    "・高さ(y, top, bottom)は、写真のいちばん上を0、いちばん下を1000とした数",
-    "・材料の欄(料理名の右にある肉や野菜の名前)、エネルギー量、説明文は rows に入れない",
-    "・ピンク色の枠で囲まれた部分があるときは、その中の料理名を pink に1つずつ入れる。なければ空にする"
+  const notFound = `${t.text}の りょうりめいが 見つかりませんでした。その ひが うつるように さつえいしてみてください。`;
+  const locatePrompt = [
+    "これは学校給食の献立表の写真です。左はしの列が日付の欄で、「27(火)」のように日付が書かれています。",
+    `日付の欄に「${t.day}(${t.wd})」(${t.day}日・${t.wd}曜日)と書かれている文字を探して、その文字だけを囲む箱を答えてください。`,
+    '次のJSONだけを答えてください: {"found": true, "box_2d": [ymin, xmin, ymax, xmax]}',
+    "・box_2d は写真の左上を0、右下を1000とした数",
+    `・「${t.day}(${t.wd})」が写っていなければ {"found": false}`
   ].join("\n");
 
-  fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [
-        { text: prompt },
-        { inline_data: { mime_type: "image/jpeg", data: base64 } }
-      ]}],
-      generationConfig: { responseMimeType: "application/json" }
-    })
-  })
-  .then(res => res.json().then(json => ({ ok: res.ok, json })))
-  .then(({ ok, json }) => {
-    if (!ok) {
-      const msg = (json.error && json.error.message) || "不明なエラー";
-      setKondateStatus("よみとれませんでした：" + msg);
-      return;
-    }
-    const text = ((((json.candidates || [])[0] || {}).content || {}).parts || [])
-      .map(p => p.text || "").join("");
-    let data = null;
-    try { data = JSON.parse(text.replace(/^[^{]*/, "").replace(/[^}]*$/, "")); } catch (e) { data = null; }
-    const lines = data ? cleanKondateLines(groupKondateRows(data, t.day).join("\n")) : [];
-    if (lines.length === 0) {
-      setKondateStatus(`${kondateDayLabel(dayInfo.date).text}の りょうりめいが 見つかりませんでした。その ひが うつるように さつえいしてみてください。`);
-      return;
-    }
-    document.getElementById("kondateText").value = lines.join("\n");
-    setKondateStatus(`${lines.length}つ よみとりました。まちがいが あれば なおしてください。`);
-  })
-  .catch(() => setKondateStatus("つうしんに しっぱいしました。ネットワークを たしかめてください。"));
-}
-
-// AIの答え(料理名の行と日付の高さ)から、編集中の日の料理だけを取り出します。
-// この献立表は、どの日もいちばん上が「ごはん／牛乳」のような主食と牛乳の行です。
-// そこで牛乳の行を1日分の始まりとして区切り、日付の文字がある区切りをその日とします。
-// (枠の線の高さより、牛乳の行の方がAIが確実に読めるため、こちらを先に使います)
-// 牛乳の無い日などで区切れないときは、AIが答えた日付の枠の上下の高さで選びます。
-// その日が写っていなければピンク枠の料理を使います。
-// AIが「ごはん」と「牛乳」を別々の行として、ほぼ同じ高さで返すことがあります。
-// そのままだと「ごはん」が牛乳の行より少し上になり、前の日に入ってしまうため、
-// 高さがほぼ同じ行(ふつうの行の間かくの4割より近い)は1つの行にまとめます。
-function mergeSameLine(acc, row, i, all) {
-  if (i === 0) {
-    const gaps = all.slice(1).map((r, k) => r.y - all[k].y).filter(g => g > 0).sort((a, b) => a - b);
-    mergeSameLine.near = gaps.length ? gaps[Math.floor(gaps.length * 0.75)] * 0.4 : 0;
-  }
-  const last = acc[acc.length - 1];
-  if (last && row.y - last.y < mergeSameLine.near) {
-    // 牛乳があとになるように並べます(「ごはん／牛乳」の順)
-    const parts = [last.text, row.text].sort((a, b) => /牛乳|ぎゅうにゅう/.test(a) - /牛乳|ぎゅうにゅう/.test(b));
-    acc[acc.length - 1] = { text: parts.join("／"), y: Math.min(last.y, row.y) };
-  } else {
-    acc.push(row);
-  }
-  return acc;
-}
-
-function groupKondateRows(data, day) {
-  const num = v => Number(String(v).replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)));
-  const rows = (data.rows || [])
-    .filter(r => r && String(r.text || "").trim())
-    .map(r => ({ text: String(r.text).trim(), y: num(r.y) }))
-    .sort((a, b) => a.y - b.y)
-    .reduce(mergeSameLine, []);
-  const dates = (data.dates || []).map(d => {
-    const m = String((d && d.label) || "").replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).match(/[0-9]+/);
-    return { day: m ? Number(m[0]) : NaN, y: num(d.y), top: num(d.top), bottom: num(d.bottom) };
-  });
-  const pink = (data.pink || []).map(String);
-  const target = dates.find(d => d.day === day);
-  if (!target) return pink;
-
-  // 主食と牛乳の行で区切る
-  // AIが牛乳を読み落としても区切れるよう、「〜ごはん」「〜パン」だけの行も1日の始まりとみなします
-  const isStart = text => /牛乳|ぎゅうにゅう|ミルク/.test(text) || /^[^／]{0,8}(ごはん|パン)$/.test(text);
-  // めんの日などは「やさいたっぷりたんめん」の次の行に牛乳だけが書かれています。
-  // 牛乳だけの行は、その1つ上の行(主食)から1日が始まるとみなします。
-  const isMilkOnly = text => /^[\s　]*(牛乳|ぎゅうにゅう|ミルク)[\s　]*$/.test(text);
-  const starts = [...new Set(rows.map((r, i) =>
-    !isStart(r.text) ? -1 : (isMilkOnly(r.text) && i > 0 ? i - 1 : i)
-  ).filter(i => i >= 0))].sort((a, b) => a - b);
-  if (starts.length > 0) {
-    const bounds = [0, ...starts.filter(i => i > 0), rows.length];
-    for (let k = 0; k < bounds.length - 1; k++) {
-      const from = k === 0 ? -Infinity : rows[bounds[k]].y;
-      const to = bounds[k + 1] < rows.length ? rows[bounds[k + 1]].y : Infinity;
-      if (target.y < from || target.y >= to) continue;
-      // 同じ区切りに別の日付も入っていたら、牛乳の無い日がまじっているので使いません
-      const others = dates.filter(d => d !== target && d.y >= from && d.y < to);
-      if (others.length === 0) {
-        let block = rows.slice(bounds[k], bounds[k + 1]);
-        // 写真のいちばん下の日は、次の日の牛乳の行が写っておらず区切れないことがあります。
-        // 日付の文字は枠のたての真ん中にあるので、1行目から日付までと同じ長さだけ下までを、その日とします。
-        if (k > 0 && bounds[k + 1] === rows.length && block.length > 1) {
-          const gap = (block[block.length - 1].y - block[0].y) / (block.length - 1);
-          const end = 2 * target.y - block[0].y + gap * 0.6;
-          block = block.filter(r => r.y <= end);
-        }
-        return block.map(r => r.text);
+  askGemini(key, locatePrompt, canvasToBase64(canvas), true)
+    .then(text => {
+      let loc = null;
+      try { loc = JSON.parse(text.replace(/^[^{]*/, "").replace(/[^}]*$/, "")); } catch (e) { loc = null; }
+      const b = loc && loc.found && Array.isArray(loc.box_2d) && loc.box_2d.length === 4 ? loc.box_2d.map(Number) : null;
+      if (!b || b.some(v => !isFinite(v))) {
+        // 日付が見つからない → ピンク枠の中を読む
+        return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas), false);
       }
-      break;
+      const w = canvas.width, h = canvas.height;
+      const box = { y0: b[0] / 1000 * h, x0: b[1] / 1000 * w, y1: b[2] / 1000 * h, x1: b[3] / 1000 * w };
+      const band = findDayBand(canvas, box);
+      // 上にも下にも線が見つからないときは、切り取れないのでピンク枠の中を読みます
+      if (band.top === 0 && band.bottom === h) {
+        return askGemini(key, kondatePinkPrompt(), canvasToBase64(canvas), false);
+      }
+      setKondateStatus("よみとり中… もうすこし まってください。");
+      return askGemini(key, kondateBandPrompt(), canvasToBase64(cropBand(canvas, band)), false);
+    })
+    .then(text => {
+      const lines = cleanKondateLines(text).filter(s => s !== "なし");
+      if (lines.length === 0) { setKondateStatus(notFound); return; }
+      document.getElementById("kondateText").value = lines.join("\n");
+      setKondateStatus(`${lines.length}つ よみとりました。まちがいが あれば なおしてください。`);
+    })
+    .catch(err => setKondateStatus(err && err.geminiMessage
+      ? "よみとれませんでした：" + err.geminiMessage
+      : "つうしんに しっぱいしました。ネットワークを たしかめてください。"));
+}
+
+// Geminiに写真と指示を送り、答えの文字を返します(json=true のときはJSONで答えさせます)
+function askGemini(key, prompt, base64, json) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${KONDATE_CONFIG.GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`;
+  const body = {
+    contents: [{ parts: [
+      { text: prompt },
+      { inline_data: { mime_type: "image/jpeg", data: base64 } }
+    ]}]
+  };
+  if (json) body.generationConfig = { responseMimeType: "application/json" };
+  return fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(res => res.json().then(j => ({ ok: res.ok, j })))
+    .then(({ ok, j }) => {
+      if (!ok) throw { geminiMessage: (j.error && j.error.message) || "不明なエラー" };
+      return ((((j.candidates || [])[0] || {}).content || {}).parts || []).map(p => p.text || "").join("");
+    });
+}
+
+function canvasToBase64(canvas) {
+  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1]; // Geminiにはプレフィックス無しのbase64を渡します
+}
+
+// 料理名を読ませる指示(切り取った1日分の帯・ピンク枠で共通の書き方)
+const KONDATE_RULES = [
+  "・料理名の欄の料理名を、上から順に、1つも省略せずに書く",
+  "・料理は1行に1つずつ。「ごはん／牛乳」のように「／」や「・」「、」で並んでいるときは、料理ごとに別々の行にする",
+  "・牛乳やお茶などの飲み物も1つの料理として書く",
+  "・材料の欄(料理名の右にある肉や野菜の名前)、日付、番号、エネルギー量、説明文は書かない",
+  "・料理名以外は一切書かない"
+];
+function kondateBandPrompt() {
+  return [
+    "これは学校給食の献立表から、1日分の段だけを切り取った写真です。",
+    ...KONDATE_RULES,
+    "・写真のいちばん上やいちばん下のはしで、文字が半分以上切れている行は書かない"
+  ].join("\n");
+}
+function kondatePinkPrompt() {
+  return [
+    "これは学校給食の献立表の写真です。",
+    "ピンク色の枠で囲まれた部分の中にある料理名を抜き出してください。",
+    ...KONDATE_RULES,
+    "・ピンク枠の外にあるものは無視する。ピンク枠が無ければ「なし」とだけ書く"
+  ].join("\n");
+}
+
+// 日付の文字の箱(ピクセル)から、日付の列の上と下の横線を探します。
+// 日付の列の、文字と同じ横はばの細長い帯だけを上下に調べます(料理名の欄の行の線を拾わないため)。
+// 線が見つからなければ写真のはしまでとします(その日が写真のはしで切れているとき)。
+function findDayBand(canvas, box) {
+  const w = canvas.width, h = canvas.height;
+  // AIの箱が少しずれても料理名の欄にはみ出さないよう、文字のまん中7割だけを使います
+  const bw = box.x1 - box.x0;
+  const x0 = Math.max(0, Math.round(box.x0 + bw * 0.15)), x1 = Math.min(w - 1, Math.round(box.x1 - bw * 0.15));
+  const sw = x1 - x0 + 1;
+  if (sw < 4) return { top: 0, bottom: h };
+  const data = canvas.getContext("2d").getImageData(x0, 0, sw, h).data;
+  const gray = new Uint8Array(sw * h), colored = new Uint8Array(sw * h);
+  const hist = new Uint32Array(256);
+  for (let i = 0; i < sw * h; i++) {
+    const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+    gray[i] = (r * 3 + g * 6 + b) / 10;
+    // ピンク枠などの色のついた線は、表の線ではないので数えません
+    colored[i] = Math.max(r, g, b) - Math.min(r, g, b) > 60 ? 1 : 0;
+    hist[gray[i]]++;
+  }
+  // 紙の明るさ(明るい方から2割の位置)を基準に、それより十分暗いところを「黒」とします
+  let acc = 0, paper = 255;
+  for (let v = 255; v >= 0; v--) { acc += hist[v]; if (acc >= sw * h * 0.2) { paper = v; break; } }
+  const th = paper * 0.65;
+  const dark = (x, y) => gray[y * sw + x] < th && !colored[y * sw + x];
+  const R = Math.max(1, Math.round(h / 1000)); // 写真の少しの傾きをゆるす高さ
+  // 表の横線は、とぎれずに横へ長くつながった黒い線です。
+  // 文字の横棒は字と字のすきまで切れるので、「つながった長さ」で見分けます。
+  const gapOk = Math.max(2, Math.round(sw / 60));
+  const isLine = y => {
+    let run = 0, best = 0, gap = 0;
+    for (let x = 0; x < sw; x++) {
+      let d = false;
+      for (let dy = -R; dy <= R && !d; dy++) { const yy = y + dy; if (yy >= 0 && yy < h && dark(x, yy)) d = true; }
+      if (d) { run += gap + 1; gap = 0; }
+      else if (run > 0 && gap < gapOk) { gap++; }
+      else { run = 0; gap = 0; }
+      if (run > best) best = run;
     }
+    return best / sw >= 0.6;
+  };
+  // AIの箱は上下に少しずれることがあるので、まず写真から日付の文字そのものの上下を確かめます。
+  // 日付の文字のまわりは白いので、黒い点がある行が続くところが文字です。
+  // 表のたての線(日付の列の左右のふち)がはばに入っても数えないよう、上から下まで黒い列は除きます
+  const colDark = new Uint32Array(sw);
+  for (let y = 0; y < h; y++) for (let x = 0; x < sw; x++) if (dark(x, y)) colDark[x]++;
+  // (写真が少し傾いていると線が となりの列にもかかるので、まわり数列もいっしょに除きます)
+  const cols = [];
+  const pad = Math.max(2, Math.round(sw / 30));
+  for (let x = 0; x < sw; x++) {
+    let near = false;
+    for (let k = Math.max(0, x - pad); k <= Math.min(sw - 1, x + pad) && !near; k++) if (colDark[k] > h * 0.15) near = true;
+    if (!near) cols.push(x);
   }
-  // 日付の枠の上下で選ぶ
-  if (target.top < target.bottom) {
-    return rows.filter(r => r.y >= target.top && r.y <= target.bottom).map(r => r.text);
+  const minInk = Math.max(2, Math.round(sw * 0.03));
+  const inked = y => { let n = 0; for (const x of cols) if (dark(x, y)) n++; return n >= minInk; };
+  const cy = Math.round((box.y0 + box.y1) / 2), half = Math.max(2, (box.y1 - box.y0) / 2);
+  let start = -1;
+  for (let d = 0; d <= half * 2 && start < 0; d++) {
+    if (cy - d >= 0 && inked(cy - d)) start = cy - d;
+    else if (cy + d < h && inked(cy + d)) start = cy + d;
   }
-  return [];
+  let textTop = cy, textBottom = cy;
+  if (start >= 0) {
+    const maxGap = Math.max(3, Math.round(half * 0.6));
+    textTop = textBottom = start;
+    for (let y = start - 1, gap = 0; y >= 0 && gap <= maxGap; y--) { if (inked(y)) { textTop = y; gap = 0; } else gap++; }
+    for (let y = start + 1, gap = 0; y < h && gap <= maxGap; y++) { if (inked(y)) { textBottom = y; gap = 0; } else gap++; }
+  }
+  // 文字の上と下から外へ向かって、最初に見つかった横線が、その日の枠の上と下です
+  let top = 0, bottom = h;
+  // (isLine は上下 R 行もいっしょに見るので、文字の行にかからないよう R+1 行はなして始めます)
+  for (let y = textTop - R - 1; y >= 0; y--) if (isLine(y)) { top = y; break; }
+  for (let y = textBottom + R + 1; y < h; y++) if (isLine(y)) { bottom = y; break; }
+  return { top, bottom };
+}
+
+// 線から線までの帯を、横はばいっぱいに切り取った新しいcanvasを返します
+function cropBand(canvas, band) {
+  const out = document.createElement("canvas");
+  out.width = canvas.width;
+  out.height = Math.max(1, band.bottom - band.top);
+  out.getContext("2d").drawImage(canvas, 0, band.top, canvas.width, out.height, 0, 0, canvas.width, out.height);
+  return out;
 }
 
 // 1品＝1行にそろえる。改行に加え、「／」「/」「・」「、」で区切られた
