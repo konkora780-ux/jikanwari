@@ -505,7 +505,7 @@
     <button class="big-btn" id="showBtn">じかんわりを みせる</button>
   </div>
   <!-- 更新日: アプリを直したら、ここの日付を書きかえてください（最新版が反映されたかの目印） -->
-  <div class="app-version">更新日 2026-10-29</div>
+  <div class="app-version">更新日 2026-11-09</div>
 </section>
 
 <!-- 画面2: みる（生徒向け表示） -->
@@ -613,6 +613,7 @@
 <div class="modal-bg" id="settingsModal">
   <div class="modal wide">
     <h2>⚙️ せってい</h2>
+    <div id="storageStatus" style="font-size:0.85rem;font-weight:700;margin:-4px 0 10px"></div>
 
     <div class="settings-section">
       <div class="settings-label">ないよう（きょうかごと）</div>
@@ -839,7 +840,13 @@ function saveCommon() {
     const subjActive = {};
     SUBJECTS.forEach(s => { subjActive[s.name] = s.active; });
     localStorage.setItem(SAVE_KEY, JSON.stringify({ CONTENTS, TEACHERS, subjActive, lastDate: dayInfo.date }));
-  } catch (e) { warnIfQuota(e); }
+    return true;
+  } catch (e) { warnIfQuota(e); return false; }
+}
+// せってい画面で ないよう・せんせい・え を足したのに 保存できなかったときは、毎回はっきり知らせます。
+// (保存できないと、画面には出ていても 次に開くと消え、「きょうだけ」と同じように見えてしまうため)
+function alertCommonNotSaved(what) {
+  alert(`「${what}」を ほぞん できませんでした。\niPadの ほぞんばしょが いっぱいです。このままだと つぎに ひらいたとき きえます。\nせってい で つかっていない え や せんせいの しゃしんを けしてから、もういちど ついか してください。`);
 }
 // その日の時間割・天気・ふりかえり・単発内容のふりがな/えを保存
 function saveDay() {
@@ -1354,8 +1361,11 @@ async function chooseSymbol(s) {
     } else {
       const c = CONTENTS.find(x => x.text === symbolTarget);
       if (c) c.img = dataUrl;
-      saveAll();
+      const ok = saveCommon();
+      saveDay();
       renderSettingsContent();
+      renderStorageStatus();
+      if (!ok) alertCommonNotSaved(symbolTarget + " の え");
     }
     renderBuild();
     closeSymbolPicker();
@@ -1385,7 +1395,7 @@ function clearSymbol(contentText, opts) {
     return;
   }
   const c = CONTENTS.find(x => x.text === contentText);
-  if (c) { delete c.img; saveAll(); renderSettingsContent(); renderBuild(); }
+  if (c) { delete c.img; saveAll(); renderSettingsContent(); renderBuild(); renderStorageStatus(); }
 }
 
 document.getElementById("symbolSearch").addEventListener("input", (e) => { if (DROPS) renderSymbolGrid(e.target.value); });
@@ -1832,6 +1842,25 @@ function renderSettings() {
   renderSettingsContent();
   renderSettingsTeacher();
   renderGeminiKey();
+  renderStorageStatus();
+}
+
+// iPadの ほぞんばしょ(localStorage・やく5MB)を どれくらい つかっているかの めやす を出します。
+// 内容が消える原因(容量いっぱい)に先生が気づけるようにするためです。
+const STORAGE_LIMIT_CHARS = 5 * 1024 * 1024 / 2; // Safariは文字数でおよそ250万字まで(1字=2バイト)
+function renderStorageStatus() {
+  const el = document.getElementById("storageStatus");
+  if (!el) return;
+  let used = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      used += k.length + (localStorage.getItem(k) || "").length;
+    }
+  } catch (e) { el.textContent = ""; return; }
+  const pct = Math.min(100, Math.round(used / STORAGE_LIMIT_CHARS * 100));
+  el.textContent = `ほぞんばしょ: やく ${pct}% つかっています` + (pct >= 85 ? "（もうすぐ いっぱいです。つかっていない え や しゃしんを けしてください）" : "");
+  el.style.color = pct >= 85 ? "#C0392B" : "#948B7C";
 }
 
 // APIキーの状態表示（キー本体は画面に出さず、入っているかどうかだけ見せます）
@@ -1948,6 +1977,7 @@ function renderSettingsContent() {
         renderSettingsContent();
         saveAll();
         renderBuild();
+        renderStorageStatus();
       });
       chip.append(label, symBtn);
       if (clrBtn) chip.append(clrBtn);
@@ -1979,8 +2009,11 @@ document.getElementById("contentSaveBtn").addEventListener("click", () => {
   contentFormSubjects = [];
   renderContentSubjectToggles();
   renderSettingsContent();
-  saveAll();     // 所属変更を時間割の表示にも反映するため saveAll + renderBuild
+  const ok = saveCommon(); // 所属変更を時間割の表示にも反映するため 保存 + renderBuild
+  saveDay();
   renderBuild();
+  renderStorageStatus();
+  if (!ok) alertCommonNotSaved(v);
 });
 
 // 先生の一覧＋削除
@@ -2006,6 +2039,7 @@ function renderSettingsTeacher() {
       renderSettingsTeacher();
       saveAll();
       renderBuild();
+      renderStorageStatus();
     });
     chip.append(label, del);
     list.appendChild(chip);
@@ -2033,7 +2067,8 @@ document.getElementById("teacherSaveBtn").addEventListener("click", () => {
   pendingPhoto = null;
   photoDrop.textContent = "かおじゃしんを えらぶ（タップ）";
   renderSettingsTeacher();
-  saveCommon();
+  if (!saveCommon()) alertCommonNotSaved(name);
+  renderStorageStatus();
 });
 
 // ===== みる画面（生徒向け表示）=====
