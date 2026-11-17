@@ -505,7 +505,7 @@
     <button class="big-btn" id="showBtn">じかんわりを みせる</button>
   </div>
   <!-- 更新日: アプリを直したら、ここの日付を書きかえてください（最新版が反映されたかの目印） -->
-  <div class="app-version">更新日 2026-11-09</div>
+  <div class="app-version">更新日 2026-11-17</div>
 </section>
 
 <!-- 画面2: みる（生徒向け表示） -->
@@ -623,6 +623,7 @@
         すでに ある ないようと おなじ なまえで ついかすると、うわがき（へんこう）できます。
       </div>
       <div class="settings-list" id="settingsContentList"></div>
+      <div id="contentEditHint" style="font-size:0.9rem;font-weight:900;color:#E8833A;margin-top:8px"></div>
       <div class="toggle-list" id="contentSubjectToggles" style="padding:8px 0;gap:8px"></div>
       <div class="add-inline" style="flex-wrap:wrap">
         <input type="text" id="contentInput" placeholder="あたらしい ないよう">
@@ -1903,9 +1904,38 @@ function renderContentSubjectToggles() {
       if (idx >= 0) contentFormSubjects.splice(idx, 1);
       else contentFormSubjects.push(s.name);
       renderContentSubjectToggles();
+      autoSaveContentSubjects();
     });
     list.appendChild(btn);
   });
+  renderContentEditHint();
+}
+
+// いちらんから呼び出した(すでにある)ないようなら、きょうかを タップした その場で ほぞん します。
+// (「ついか・へんこう」を おしわすれると 生単・自立に はいらないため)
+function autoSaveContentSubjects() {
+  const v = document.getElementById("contentInput").value.trim();
+  const existing = v && CONTENTS.find(x => x.text === v);
+  if (!existing) return;
+  existing.subjects = [...contentFormSubjects];
+  const ok = saveCommon();
+  saveDay();
+  renderSettingsContent();
+  renderBuild();
+  renderStorageStatus();
+  renderContentEditHint();
+  if (!ok) alertCommonNotSaved(v);
+}
+
+// いま どの ないようの きょうかを かえているかを、きょうかボタンの上に出します。
+function renderContentEditHint() {
+  const el = document.getElementById("contentEditHint");
+  if (!el) return;
+  const v = document.getElementById("contentInput").value.trim();
+  const existing = v && CONTENTS.find(x => x.text === v);
+  if (!existing) { el.textContent = ""; return; }
+  const where = existing.subjects.length ? existing.subjects.join("・") : "みんな（どの きょうかでも）";
+  el.textContent = `「${v}」 → ${where} で でます（きょうかを タップすると すぐ ほぞん）`;
 }
 
 // 内容の一覧＋削除（「みんな」→各教科 の順に、見出しをつけて分けて表示）
@@ -1951,7 +1981,8 @@ function renderSettingsContent() {
         document.getElementById("contentKanaInput").value = c.kana || "";
         contentFormSubjects = [...(c.subjects || [])];
         renderContentSubjectToggles();
-        document.getElementById("contentInput").focus();
+        // キーボードで きょうかボタンが かくれないよう、入力欄には フォーカスせず ボタンまで スクロール
+        document.getElementById("contentSubjectToggles").scrollIntoView({ behavior: "smooth", block: "center" });
       });
       // 絵をえらぶ／かえる
       const symBtn = document.createElement("button");
@@ -1989,6 +2020,8 @@ function renderSettingsContent() {
     list.innerHTML = `<div style="color:#948B7C;font-weight:700">まだ ないようが ありません。したから ついか できます。</div>`;
   }
 }
+
+document.getElementById("contentInput").addEventListener("input", renderContentEditHint);
 
 // 内容の追加・へんこう（選んだ教科(いくつでも)に属する内容として足す。「みんな」なら subjects は空配列）
 document.getElementById("contentSaveBtn").addEventListener("click", () => {
